@@ -72,7 +72,8 @@ public class ExportExcelHandler {
             String columnName = Utils.STR.trim(Utils.STR.valueOf(value));
             ColumnHeaderPath columnHeaderPath = ExcelHeaderPathParser.parse(columnName);
             if (objectMetadata.containsAttribute(columnHeaderPath.originalPath())
-                    || attrReferenceNames.contains(columnHeaderPath.referenceFieldName())) {
+                    || attrReferenceNames.contains(columnHeaderPath.referenceFieldName())
+                    || (columnHeaderPath.isReference() && objectMetadata.containsAttribute(columnHeaderPath.referenceFieldName()))) {
                 dataHeaderMap.put(cellData.getColumnIndex(), columnHeaderPath);
             }
         });

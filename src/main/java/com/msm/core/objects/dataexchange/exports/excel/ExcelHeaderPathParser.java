@@ -10,7 +10,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class ExcelHeaderPathParser {
-    private static final Pattern REF_PATTERN = Pattern.compile("^([^.]+)\\.([^.]+)$");
+    private static final Pattern REF_PATTERN = Pattern.compile("^([^.]+)(?:\\.[^.]+)+$");
 
 
     public static Map<String, ColumnHeaderPath> cacheHeaderPaths(List<String> headers) {
@@ -45,11 +45,8 @@ public class ExcelHeaderPathParser {
         Matcher matcher = REF_PATTERN.matcher(cleanHeader);
 
         if (matcher.matches()) {
-            // Group 1: customerIdReference
+            // Group 1: customerIdReference, trader2Info
             String referenceFieldName = matcher.group(1);
-            // Group 2: accountName
-//            String nestedAttributeName = matcher.group(2);
-            Utils.STR.toCamelCaseUnderscore(referenceFieldName);
             return ColumnHeaderPath.of(
                     true,
                     referenceFieldName,
