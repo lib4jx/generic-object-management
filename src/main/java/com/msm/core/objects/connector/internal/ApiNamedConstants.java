@@ -8,6 +8,8 @@ public class ApiNamedConstants {
     public static final String PATH_QUERY = "/api/v1/internal/generic/objects/query";
     public static final String PATH_METADATA = "/api/v1/internal/generic/objects/metadata";
     public static final String PATH_CONVERSION = "/api/v1/internal/generic/objects/conversion";
+    public static final String PATH_SCHEMAS = "/api/v1/internal/generic/objects/schema";
+    public static final String PATH_SCHEMA = "/api/v1/internal/generic/objects/{0}/schema";
 
     public static final String PATH_BY_OBJECT = "/api/v1/internal/generic/objects/{0}";
     public static final String PATH_BULK = "/api/v1/internal/generic/objects/{objectName}/bulk";

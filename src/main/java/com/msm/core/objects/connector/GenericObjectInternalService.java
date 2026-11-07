@@ -13,6 +13,7 @@ import com.msm.core.objects.connector.internal.ApiNamedConstants;
 import com.msm.core.objects.dataexchange.imports.ObjectServiceFactory;
 import com.msm.core.objects.dto.QueryTemplate;
 import com.msm.core.objects.integration.RequestClient;
+import com.msm.core.objects.schema.dto.ObjectSchema;
 import com.msm.core.objects.utils.GenericObjectUtils;
 import lombok.RequiredArgsConstructor;
 
@@ -76,6 +77,12 @@ public class GenericObjectInternalService {
     public List<Map<String, Object>> getAllObjects(String objectName) {
         String queryAllObjectUrl = Utils.STR.format(ApiNamedConstants.PATH_BY_OBJECT, objectName);
         return internalRestClient.get(getBaseUrl(objectName), queryAllObjectUrl, List.class);
+    }
+
+    /** Read-only schema of an object, from the service that owns it (routed like the other calls). */
+    public ObjectSchema getSchema(String objectName) {
+        String schemaUrl = Utils.STR.format(ApiNamedConstants.PATH_SCHEMA, objectName);
+        return internalRestClient.get(getBaseUrl(objectName), schemaUrl, ObjectSchema.class);
     }
 
     public Map<String, Object> createObject(String objectName, Map<String, Object> data) {

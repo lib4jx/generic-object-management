@@ -11,6 +11,8 @@ import com.msm.core.filter.domain.PageResponse;
 import com.msm.core.objects.dto.ObjectConversionRequest;
 import com.msm.core.objects.dto.QueryTemplate;
 import com.msm.core.objects.integration.RequestClient;
+import com.msm.core.objects.schema.dto.ObjectSchema;
+import com.msm.core.objects.schema.dto.ObjectSchemaSummary;
 import lombok.RequiredArgsConstructor;
 
 import java.util.HashMap;
@@ -83,6 +85,17 @@ public abstract class ObjectClientService {
     public List<Map<String, Object>> getAllObjects(String objectName) {
         String queryAllObjectUrl = Utils.STR.format(ApiNamedConstants.PATH_BY_OBJECT, objectName);
         return internalRestClient.get(getBaseUrl(), queryAllObjectUrl, List.class);
+    }
+
+    /** Read-only schema of an object of the target service (attributes, types, enum values, references). */
+    public ObjectSchema getSchema(String objectName) {
+        return internalRestClient.get(getBaseUrl(), Utils.STR.format(ApiNamedConstants.PATH_SCHEMA, objectName), ObjectSchema.class);
+    }
+
+    /** Every object of the target service with the hash of its schema. */
+    public List<ObjectSchemaSummary> getSchemas() {
+        ObjectSchemaSummary[] schemas = internalRestClient.get(getBaseUrl(), ApiNamedConstants.PATH_SCHEMAS, ObjectSchemaSummary[].class);
+        return schemas == null ? List.of() : List.of(schemas);
     }
 
     abstract public String getBaseUrl();

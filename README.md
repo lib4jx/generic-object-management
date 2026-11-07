@@ -146,6 +146,8 @@ Endpoint portal có prefix `/api/v1/cn/portal/generic/objects`. Phiên bản n�
 | POST | `/query` | Named query (`QueryTemplate`) |
 | POST | `/conversion` | Chuyển đổi object |
 | POST | `/metadata` | Sinh metadata từ `information_schema` vào `object_metadata` |
+| GET | `/schema` | **Chỉ nội bộ.** Mọi object của service kèm `hash` schema |
+| GET | `/{obj}/schema` | **Chỉ nội bộ.** Schema chỉ đọc của object (xem [Schema của object](#schema-của-object)) |
 | | `/{obj}/imports/...`, `/importjob`, `/exportjob` | Import/export (xem bên dưới) |
 
 - Response trả thẳng `Map`, `List` hoặc `PageResponse`, không có wrapper.
@@ -458,13 +460,45 @@ Trạng thái: `PENDING_EXPORT → EXPORTING → COMPLETED | FAILED`.
 
 **Đường dẫn file trên S3:** `{tenantCode}/{aws.s3.sub-folder}/{objectName}/{yyyyMMdd}/{uuid}_{epochMillis}.{ext}`.
 
+## Schema của object
+
+`GET /api/v1/internal/generic/objects/{obj}/schema` mô tả object cho service khác đọc (ví dụ engine luật cần biết field nào có, kiểu gì, trỏ tới object nào). Không có bảng mới: schema dựng từ metadata mà service đăng ký từ JPA entity lúc khởi động (`ObjectMetadataFactory`), entity vẫn là nguồn sự thật.
+
+```json
+{
+  "object": "accountsite",
+  "idField": "id",
+  "hash": "sha256:…",
+  "attributes": [
+    {"name": "code", "type": "STRING", "javaType": "String", "required": true, "multiSelect": false},
+    {"name": "provinceId", "type": "UUID", "javaType": "UUID", "required": false, "multiSelect": false,
+     "ref": {"object": "geography", "snapshotField": "provinceIdReference"}},
+    {"name": "status", "type": "STRING", "javaType": "String", "required": false, "multiSelect": false,
+     "enumValues": ["ACTIVE", "INACTIVE"]}
+  ]
+}
+```
+
+- **`type`:** `STRING`, `NUMBER`, `BOOLEAN`, `DATE`, `DATETIME`, `UUID`, `STRING_LIST`, `UUID_LIST`, `JSON`, `OTHER`. `javaType` giữ kiểu Java khai báo.
+- **`enumValues`:** khi field có `@AttributeDefinition(enumType = …)`, đúng tên hằng (phân biệt hoa thường).
+- **`ref`:** khi `@AttributeDefinitionRef` có `objectRef`.
+  - `snapshotField` là key JSON `<field>Reference`.
+  - `snapshotFields` chỉ có khi metadata khai báo (`AttributeRef.attributeRefs`). commons 2.4.2 chưa điền giá trị này từ annotation, nên hiện nay field này vắng.
+- **Không có trong schema:**
+  - tên bảng, tên cột, jOOQ, phạm vi bảo mật;
+  - field audit / soft-delete / workflow của `AuditingEntity`, `BusinessProcessEntity`, `SoftDeleteEntity`;
+  - `version` và `customValues`.
+- **`hash`:** SHA-256 của nội dung schema, giống nhau trên mọi instance. Đổi khi đổi field, kiểu, enum hay ref; dùng để phát hiện schema đã đổi.
+- **`GET …/schema`:** liệt kê `{object, hash}` của mọi object của service (bỏ entity của chính lib như import / export job).
+- **Quyền:** như các API nội bộ khác, endpoint không kiểm quyền. Service nào để `/internal/**` `permitAll` thì nên chặn ở mạng hoặc yêu cầu JWT nội bộ.
+
 ## Gọi service khác
 
 - **`GenericObjectInternalService`:** gọi API nội bộ của service khác tại `objects.api-config.service-urls.<service> + "/" + <service>`; service không khai báo (hoặc giá trị trống) thì dùng `objects.api-config.base-url + "/" + <service>`.
   - Key của `service-urls` là tên service trong `ObjectServiceFactory`: `user`, `customer`, `order`, `inventory`, `master-data`, `catalog`.
   - Đường dẫn `/internal` thường bị gateway công khai chặn: trỏ `service-urls` vào host nội bộ của từng service.
   - Service đích được tra trong `ObjectServiceFactory`. **Object mới gọi chéo service phải được thêm vào map này** với key viết thường; nếu không, lời gọi ném `IllegalStateException` có tên object.
-- **`ObjectClientService`:** class trừu tượng. Kế thừa class này và implement `getBaseUrl()` để có sẵn các hàm filter / getById / query / conversion tới `/api/v1/internal`.
+- **`ObjectClientService`:** class trừu tượng. Kế thừa class này và implement `getBaseUrl()` để có sẵn các hàm filter / getById / query / conversion / `getSchema` / `getSchemas` tới `/api/v1/internal`. `GenericObjectInternalService.getSchema(object)` đọc schema từ service sở hữu object (định tuyến như các lời gọi khác).
 - **Tích hợp hệ thống ngoài:** dùng `integrationClient.connector(<name>)` với cấu hình `integration.connectors.<name>`.
   - OAuth token được cache trong Redis.
   - Request được ghi vào bảng `integration_log`.

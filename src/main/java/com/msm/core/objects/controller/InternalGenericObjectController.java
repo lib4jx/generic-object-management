@@ -6,6 +6,9 @@ import com.msm.core.metadata.ObjectMetadata;
 import com.msm.core.objects.dto.ObjectConversionRequest;
 import com.msm.core.objects.dto.ObjectDeleteRequest;
 import com.msm.core.objects.dto.QueryTemplate;
+import com.msm.core.objects.schema.ObjectSchemaService;
+import com.msm.core.objects.schema.dto.ObjectSchema;
+import com.msm.core.objects.schema.dto.ObjectSchemaSummary;
 import com.msm.core.objects.service.GenericObjectMetadataService;
 import com.msm.core.objects.service.internal.InternalGenericObjectService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -51,6 +54,7 @@ public class InternalGenericObjectController {
 
     private final InternalGenericObjectService internalGenericObjectService;
     private final GenericObjectMetadataService genericObjectMetadataService;
+    private final ObjectSchemaService objectSchemaService;
 
 //    @PreAuthorize("@permissionService.canView(#p0)")
     @Operation(summary = "Filter object", description = "list of object filtered")
@@ -283,5 +287,22 @@ public class InternalGenericObjectController {
     @PostMapping("/generic/objects/metadata")
     public ResponseEntity<ObjectMetadata> createObjectMetadata(@RequestBody Map<String, Object> request) {
         return ResponseEntity.ok(genericObjectMetadataService.autoGenerateObjectMetaDataHandler(request));
+    }
+
+    /**
+     * Read-only schemas of the objects of this service, for other services (for example a rule engine that resolves
+     * the data its rules read). The literal {@code schema} segment takes precedence over {@code GET /{objectName}} and
+     * {@code GET /{objectName}/{id}} (fewer path variables); ids are UUIDs.
+     */
+    @Operation(summary = "Object schemas", description = "Every object of the service with the hash of its schema")
+    @GetMapping("/generic/objects/schema")
+    public ResponseEntity<List<ObjectSchemaSummary>> getSchemas() {
+        return ResponseEntity.ok(objectSchemaService.getSchemas());
+    }
+
+    @Operation(summary = "Object schema", description = "Attributes, logical types, enum values and references of one object")
+    @GetMapping("/generic/objects/{objectName}/schema")
+    public ResponseEntity<ObjectSchema> getSchema(@PathVariable("objectName") String objectName) {
+        return ResponseEntity.ok(objectSchemaService.getSchema(objectName));
     }
 }

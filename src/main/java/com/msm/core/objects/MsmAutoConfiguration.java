@@ -124,6 +124,8 @@ import com.msm.core.objects.security.DefaultSecurityFieldResolver;
 import com.msm.core.objects.security.SecurityFieldResolver;
 import com.msm.core.objects.security.SecurityFieldResolverFactory;
 import com.msm.core.objects.service.DefaultSoftDeleteFilter;
+import com.msm.core.objects.schema.ObjectSchemaMapper;
+import com.msm.core.objects.schema.ObjectSchemaService;
 import com.msm.core.objects.service.GenericObjectMetadataService;
 import com.msm.core.objects.service.GenericObjectService;
 import com.msm.core.objects.service.IntegrationLogService;
@@ -641,8 +643,22 @@ public class MsmAutoConfiguration {
     }
 
     @Bean
-    public InternalGenericObjectController internalGenericObjectController(InternalGenericObjectService internalGenericObjectService, GenericObjectMetadataService genericObjectMetadataService) {
-        return new InternalGenericObjectController(internalGenericObjectService, genericObjectMetadataService);
+    @ConditionalOnMissingBean
+    public ObjectSchemaMapper objectSchemaMapper() {
+        return new ObjectSchemaMapper();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ObjectSchemaService objectSchemaService(EntityManager entityManager, ObjectSchemaMapper objectSchemaMapper) {
+        return new ObjectSchemaService(entityManager, objectSchemaMapper);
+    }
+
+    @Bean
+    public InternalGenericObjectController internalGenericObjectController(InternalGenericObjectService internalGenericObjectService,
+                                                                           GenericObjectMetadataService genericObjectMetadataService,
+                                                                           ObjectSchemaService objectSchemaService) {
+        return new InternalGenericObjectController(internalGenericObjectService, genericObjectMetadataService, objectSchemaService);
     }
 
     @Bean

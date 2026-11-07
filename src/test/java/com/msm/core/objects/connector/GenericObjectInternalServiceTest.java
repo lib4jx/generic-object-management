@@ -2,15 +2,18 @@ package com.msm.core.objects.connector;
 
 import com.msm.core.objects.config.GenericObjectConfigProperties;
 import com.msm.core.objects.integration.RequestClient;
+import com.msm.core.objects.schema.dto.ObjectSchema;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class GenericObjectInternalServiceTest {
 
@@ -76,5 +79,19 @@ class GenericObjectInternalServiceTest {
         assertThatThrownBy(() -> service.getBaseUrl("no-such-object"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("no-such-object");
+    }
+
+    @Test
+    void aSchemaIsReadFromTheServiceThatOwnsTheObject() {
+        GenericObjectConfigProperties properties = new Binder(new MapConfigurationPropertySource(Map.of(
+                "objects.api-config.base-url", "https://gw.example",
+                "objects.api-config.service-urls.master-data", "http://nlb.internal:8287")))
+                .bindOrCreate("objects", GenericObjectConfigProperties.class);
+        RequestClient client = mock(RequestClient.class);
+        ObjectSchema schema = new ObjectSchema("geographylocation", "id", "sha256:x", List.of());
+        when(client.get("http://nlb.internal:8287/master-data", "/api/v1/internal/generic/objects/geographylocation/schema", ObjectSchema.class))
+                .thenReturn(schema);
+
+        assertThat(new GenericObjectInternalService(properties, client).getSchema("geographylocation")).isSameAs(schema);
     }
 }
