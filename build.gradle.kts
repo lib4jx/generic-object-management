@@ -46,7 +46,7 @@ extra["commons-lang3.version"] = "3.18.0"
 val queryDslVersion = "6.10.1"
 val awssdkVersion = "2.29.47"
 
-//https://jitpack.io/#msm-lib/commons/3.1
+//https://jitpack.io/#lib4jx/commons/3.1
 val msmCommonVersion = "2.4.5"
 
 dependencies {
@@ -98,7 +98,7 @@ dependencies {
     testRuntimeOnly("org.postgresql:postgresql")
 
 //    implementation(files("/Users/danhnh/Infomation/Development/Lib/common/build/libs/commons-1.0.0.jar"))
-    implementation("com.github.msm-lib:commons:${msmCommonVersion}") { exclude(group = "org.slf4j") }
+    implementation("com.github.lib4jx:commons:${msmCommonVersion}") { exclude(group = "org.slf4j") }
 
 
 

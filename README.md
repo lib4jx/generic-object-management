@@ -7,11 +7,11 @@ Thư viện Spring Boot (package `com.msm.core.objects`) cung cấp sẵn cho c�
 - **Import CSV/Excel** (qua S3 presigned URL, staging, báo lỗi theo dòng) và **export Excel**.
 - **Client gọi service nội bộ** và **client tích hợp hệ thống ngoài** (auth, retry, ghi log tích hợp).
 
-Thư viện xây trên [commons](https://github.com/msm-lib/commons). Các khái niệm metadata, `TypedAttribute`, filter, action/hook được mô tả trong README của commons.
+Thư viện xây trên [commons](https://github.com/lib4jx/commons). Các khái niệm metadata, `TypedAttribute`, filter, action/hook được mô tả trong README của commons.
 
 ## Cài đặt
 
-Bản phát hành là **git tag** (ví dụ `2.5.3`), build qua [JitPack](https://jitpack.io/#msm-lib/generic-object-management).
+Bản phát hành là **git tag** (ví dụ `2.5.3`), build qua [JitPack](https://jitpack.io/#lib4jx/generic-object-management).
 
 ```kotlin
 repositories {
@@ -20,9 +20,9 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.msm-lib:generic-object-management:2.5.3")
+    implementation("com.github.lib4jx:generic-object-management:2.5.3")
     // Thêm dòng này nếu service dùng trực tiếp type của commons. Phải cùng version với msmCommonVersion của thư viện này
-    implementation("com.github.msm-lib:commons:2.4.5")
+    implementation("com.github.lib4jx:commons:2.4.5")
 }
 ```
 
@@ -523,7 +523,7 @@ Trạng thái: `PENDING_EXPORT → EXPORTING → COMPLETED | FAILED`.
 1. Muốn nâng commons thì sửa `msmCommonVersion` trong `build.gradle.kts`. Commons phải có tag và build thành công trên JitPack trước.
 2. Merge thay đổi vào `main`.
 3. Tạo GitHub Release với tag mới (semver, không có tiền tố `v`).
-4. Mở <https://jitpack.io/#msm-lib/generic-object-management> và bấm **Get it** ở tag mới để build.
+4. Mở <https://jitpack.io/#lib4jx/generic-object-management> và bấm **Get it** ở tag mới để build.
 
 `jitpack.yml` cố định JDK `21.0.2-open` qua SDKMAN.
 
