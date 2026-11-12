@@ -22,7 +22,7 @@ repositories {
 dependencies {
     implementation("com.github.lib4jx:generic-object-management:2.5.3")
     // Thêm dòng này nếu service dùng trực tiếp type của commons. Phải cùng version với msmCommonVersion của thư viện này
-    implementation("com.github.lib4jx:commons:2.4.5")
+    implementation("com.github.lib4jx:commons:2.4.6")
 }
 ```
 
@@ -226,7 +226,7 @@ public final class ImportJobMeta {
 - **Delete:** xóa mềm nếu metadata có `isDeleted`/`deletedAt`/`deletedBy`/`deletedById`, nếu không thì xóa thật.
 - **`code` bị thiếu khi create:** tự sinh ngẫu nhiên. Nếu object có trong `ObjectConstants.PREFIX_OBJECT_CODE` thì sinh theo tiền tố.
 - **Nguồn metadata:** `ObjectMetadataFactory` (từ JPA) trước, sau đó đến bảng `object_metadata` (được cache).
-- **Filter qua relation** (commons 2.4.5): `filter` / `lookup` dùng được object khác cùng service qua relation (`{"relation": …}`, `"@<relation>.<field>"` trong `conditions` / `returnFields` / `sorts` / `search`, `"*"` trong `returnFields`). Chi tiết ở mục "Relation (cùng service)" trong README của commons.
+- **Filter qua relation** (commons 2.4.5, tên theo reference field từ 2.4.6): `filter` / `lookup` dùng được object khác cùng service qua các `attributeRef` object đã có, không cần cấu hình thêm (`"@<reference>.<field>"` như `"@blanketOrderIdReference.code"` trong `conditions` / `returnFields` / `sorts` / `search`, node `{"relation": …}`, `"*"` trong `returnFields`). Tên ngắn của 2.4.5 (`@blanketOrder`) vẫn chạy. Chi tiết ở mục "Relation (cùng service)" trong README của commons.
   - User không có quyền VIEW object đích: commons ném `RelationAccessDeniedException` (mã `RELATION_ACCESS_DENIED`). Integration log ghi 403.
   - Service cần trả **HTTP 403** cho exception này trong `GlobalExceptionHandler` của mình. Không có handler riêng thì lỗi rơi vào handler `GenericBaseException` và trả 400.
 - **Người dùng và tenant:** luôn lấy từ `RequestContextHolder` của commons.
