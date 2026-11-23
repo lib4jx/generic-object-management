@@ -16,6 +16,8 @@ class RecordingHandler implements AsyncIntegrationHandler<Map<String, Object>, M
     static final String CONNECTOR = "erp";
 
     final List<String> events = new CopyOnWriteArrayList<>();
+    /** Thread of each result callback (onSucceeded / onFailed / onUnconfirmed / afterSucceededCommit), in order. */
+    final List<Thread> callbackThreads = new CopyOnWriteArrayList<>();
     final List<IntegrationTaskContext> tasks = new CopyOnWriteArrayList<>();
     Function<Map<String, Object>, Object> partner = payload -> Map.of("HeaderId", 1);
     BusinessOutcome business = BusinessOutcome.accepted();
@@ -24,6 +26,7 @@ class RecordingHandler implements AsyncIntegrationHandler<Map<String, Object>, M
     RuntimeException onFailedError;
     RuntimeException onUnconfirmedError;
     RuntimeException onSucceededError;
+    RuntimeException classifyFailure;
     Object lastResponse;
     IntegrationError lastError;
     private final String action;
@@ -61,6 +64,9 @@ class RecordingHandler implements AsyncIntegrationHandler<Map<String, Object>, M
     @Override
     public BusinessOutcome classify(Object response) {
         events.add("classify");
+        if (classifyFailure != null) {
+            throw classifyFailure;
+        }
         return business;
     }
 
@@ -73,6 +79,7 @@ class RecordingHandler implements AsyncIntegrationHandler<Map<String, Object>, M
     @Override
     public void onSucceeded(IntegrationTaskContext task, Object response) {
         events.add("onSucceeded");
+        callbackThreads.add(Thread.currentThread());
         tasks.add(task);
         lastResponse = response;
         if (onSucceededError != null) {
@@ -83,6 +90,7 @@ class RecordingHandler implements AsyncIntegrationHandler<Map<String, Object>, M
     @Override
     public void onFailed(IntegrationTaskContext task, IntegrationError error) {
         events.add("onFailed");
+        callbackThreads.add(Thread.currentThread());
         tasks.add(task);
         lastError = error;
         if (onFailedError != null) {
@@ -93,6 +101,7 @@ class RecordingHandler implements AsyncIntegrationHandler<Map<String, Object>, M
     @Override
     public void onUnconfirmed(IntegrationTaskContext task, IntegrationError error) {
         events.add("onUnconfirmed");
+        callbackThreads.add(Thread.currentThread());
         tasks.add(task);
         lastError = error;
         if (onUnconfirmedError != null) {
@@ -109,6 +118,7 @@ class RecordingHandler implements AsyncIntegrationHandler<Map<String, Object>, M
     @Override
     public void afterSucceededCommit(IntegrationTaskContext task) {
         events.add("afterSucceededCommit");
+        callbackThreads.add(Thread.currentThread());
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

@@ -9,7 +9,8 @@ import java.util.Optional;
 /**
  * One kind of call to a partner, made through {@link AsyncIntegrationDispatcher#dispatch} at the place the action used
  * to call the partner. Three steps: {@link #prepare} in the action's transaction, {@link #call} outside any
- * transaction, then the result callbacks in a new transaction (async) or in the action's transaction (sync).
+ * transaction, then the result callbacks in a new transaction (async) or in the action's transaction (sync, or async
+ * with a result within {@code inline-wait-ms}: see {@code IntegrationTaskContext.isAsync()}).
  *
  * <p>Declare implementations as Spring beans: the sweeper and the actions {@code retry} / {@code resolve} find them
  * by {@code connector().getName()} + {@link #action()}, the pair stored on the task.

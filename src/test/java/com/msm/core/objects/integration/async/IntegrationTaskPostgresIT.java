@@ -12,6 +12,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
@@ -123,6 +124,48 @@ class IntegrationTaskPostgresIT {
         assertThat(row.request()).isEqualTo("{\"code\": \"DH1\"}");
         assertThat(store.findProcessing(OBJECT, List.of(UUID.randomUUID(), recordId))).map(IntegrationTaskRow::id).contains(first.id());
         assertThat(store.findProcessing("other", List.of(recordId))).isEmpty();
+    }
+
+    @Test
+    void finishedTaskDoesNotBlockANewOneOfTheRecord() {
+        // Arrange: one task FAILED, one UNCONFIRMED (deadline)
+        UUID recordId = UUID.randomUUID();
+        NewIntegrationTask failed = newTask(recordId, Instant.now().plusSeconds(360));
+        store.insert(failed);
+        store.finish(failed.id(), failed.attemptId(), ClassifiedOutcome.failed(IntegrationOutcome.HTTP_ERROR,
+                IntegrationError.of(IntegrationOutcome.HTTP_ERROR, "bad")));
+        NewIntegrationTask unconfirmed = newTask(recordId, Instant.now().minusSeconds(1));
+        store.insert(unconfirmed);
+        assertThat(store.expireNext(List.of(), "late")).isPresent();
+        NewIntegrationTask next = newTask(recordId, Instant.now().plusSeconds(360));
+
+        // Act
+        store.insert(next);
+
+        // Assert
+        assertThat(store.findById(failed.id()).orElseThrow().status()).isEqualTo(IntegrationTaskStatus.FAILED);
+        assertThat(store.findById(unconfirmed.id()).orElseThrow().status()).isEqualTo(IntegrationTaskStatus.UNCONFIRMED);
+        assertThat(store.findProcessing(OBJECT, List.of(recordId))).map(IntegrationTaskRow::id).contains(next.id());
+    }
+
+    @Test
+    void taskInsertedInItsOwnTransactionOutlivesTheCallersRollback() {
+        // Arrange: inline wait inserts with REQUIRES_NEW inside the action's transaction
+        UUID recordId = UUID.randomUUID();
+        NewIntegrationTask task = newTask(recordId, Instant.now().plusSeconds(360));
+        TransactionTemplate newTransaction = new TransactionTemplate(transactionManager);
+        newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        // Act
+        tx.executeWithoutResult(action -> {
+            newTransaction.executeWithoutResult(status -> store.insert(task));
+            action.setRollbackOnly();
+        });
+
+        // Assert: still PROCESSING, so another request of the record is in progress
+        assertThat(store.findById(task.id()).orElseThrow().status()).isEqualTo(IntegrationTaskStatus.PROCESSING);
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> store.insert(newTask(recordId, Instant.now().plusSeconds(360)))))
+                .isInstanceOf(IntegrationTaskInProgressException.class);
     }
 
     @Test

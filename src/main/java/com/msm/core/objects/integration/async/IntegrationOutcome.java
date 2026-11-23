@@ -23,5 +23,10 @@ public enum IntegrationOutcome {
     /** Still PROCESSING at {@code deadline_at} (instance stopped, result lost). */
     DEADLINE_EXCEEDED,
     /** Closed by hand with the action {@code resolve}. */
-    RESOLVED
+    RESOLVED,
+    /**
+     * Inline wait: the partner succeeded but the action's transaction rolled back, so the record does not show it; the
+     * task is UNCONFIRMED with the partner's answer kept in {@code response}.
+     */
+    ACTION_ROLLED_BACK
 }

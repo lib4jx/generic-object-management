@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,6 +15,15 @@ class IntegrationPropertiesTest {
 
     private IntegrationProperties bind(Map<String, String> values) {
         return new Binder(new MapConfigurationPropertySource(values)).bindOrCreate("integration", IntegrationProperties.class);
+    }
+
+    /** A valid async connector {@code erp} (read timeout 300s, deadline 360s) plus {@code extra}. */
+    private Map<String, String> asyncErp(Map<String, String> extra) {
+        Map<String, String> values = new HashMap<>(extra);
+        values.put("integration.connectors.erp.timeout.read-ms", "300000");
+        values.put("integration.connectors.erp.async.enabled", "true");
+        values.put("integration.connectors.erp.async.deadline-ms", "360000");
+        return values;
     }
 
     @Test
@@ -51,6 +61,63 @@ class IntegrationPropertiesTest {
         assertThat(properties.getAsyncExecutor().getMaxConcurrency()).isEqualTo(4);
         assertThat(properties.hasAsyncConnector()).isTrue();
         assertThatCode(properties::validate).doesNotThrowAnyException();
+    }
+
+    @Test
+    void inlineWaitDefaultsToZeroAndBinds() {
+        // Arrange / Act
+        IntegrationProperties defaults = bind(asyncErp(Map.of()));
+        IntegrationProperties inline = bind(asyncErp(Map.of("integration.connectors.erp.async.inline-wait-ms", "25000")));
+
+        // Assert
+        assertThat(defaults.getConnectors().get("erp").getAsync().getInlineWaitMs()).isZero();
+        assertThat(inline.getConnectors().get("erp").getAsync().getInlineWaitMs()).isEqualTo(25_000L);
+        assertThatCode(defaults::validate).doesNotThrowAnyException();
+        assertThatCode(inline::validate).doesNotThrowAnyException();
+    }
+
+    @Test
+    void asyncEnabledWithoutReadTimeoutFails() {
+        // Arrange
+        IntegrationProperties properties = bind(Map.of(
+                "integration.connectors.erp.async.enabled", "true",
+                "integration.connectors.erp.async.deadline-ms", "360000"));
+
+        // Act / Assert
+        assertThatThrownBy(properties::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("integration.connectors.erp.timeout.read-ms is required when async.enabled is true");
+    }
+
+    @Test
+    void idempotentWithoutAsyncNeedsNoReadTimeout() {
+        // Arrange
+        IntegrationProperties properties = bind(Map.of(
+                "integration.connectors.erp.async.idempotent", "true",
+                "integration.connectors.erp.async.deadline-ms", "360000"));
+
+        // Act / Assert
+        assertThatCode(properties::validate).doesNotThrowAnyException();
+    }
+
+    @Test
+    void inlineWaitNotBelowDeadlineFails() {
+        // Arrange
+        IntegrationProperties properties = bind(asyncErp(Map.of("integration.connectors.erp.async.inline-wait-ms", "360000")));
+
+        // Act / Assert
+        assertThatThrownBy(properties::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("inline-wait-ms (360000) must be lower than async.deadline-ms (360000)");
+    }
+
+    @Test
+    void negativeInlineWaitFails() {
+        // Arrange
+        IntegrationProperties properties = bind(asyncErp(Map.of("integration.connectors.erp.async.inline-wait-ms", "-1")));
+
+        // Act / Assert
+        assertThatThrownBy(properties::validate).hasMessageContaining("integration.connectors.erp.async.inline-wait-ms must be >= 0");
     }
 
     @Test

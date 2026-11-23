@@ -87,7 +87,7 @@ integration:
       auth: { ... }                         # api-key | basic | bearer | oauth2 client-credentials | oauth2 password
       retry: { ... }
       timeout: { connect-ms: 10000, read-ms: 300000 }          # tùy chọn, xem mục "Gọi đối tác bất đồng bộ"
-      async: { enabled: false, deadline-ms: 360000, idempotent: false }   # tùy chọn
+      async: { enabled: false, deadline-ms: 360000, idempotent: false, inline-wait-ms: 0 }   # tùy chọn
 ```
 
 - Cấu hình import/export (`imports.*`, `exports.*`) có thể đặt trong `classpath:imports/*.yml` và `classpath:exports/*.yml`. Các file này được nạp tự động với **độ ưu tiên cao nhất**, ghi đè cả `application.yml`.
@@ -105,7 +105,7 @@ Thư viện thêm các JPA entity của nó vào persistence unit của service.
 - `integration_log`
 - `object_metadata`, nếu dùng metadata động
 - `audit_log_outbox`, nếu bật change log (không phải JPA entity, xem mục Change log)
-- `integration_task` (JPA entity từ 2.8.0, object chỉ đọc `integrationtask`): cần khi có connector bật async; service đặt `ddl-auto=validate` thì luôn cần. Script ở mục "Gọi đối tác bất đồng bộ"
+- `integration_task` (JPA entity từ 2.7.3, object chỉ đọc `integrationtask`): cần khi có connector bật async; service đặt `ddl-auto=validate` thì luôn cần. Script ở mục "Gọi đối tác bất đồng bộ"
 
 Các bảng job kế thừa `SoftDeleteEntity` → `BusinessProcessEntity` → `AuditingEntity`, nên phải có đủ các cột sau:
 
@@ -331,7 +331,7 @@ private Map<String, Object> taxState(Account account) {
 
 ## Gọi đối tác bất đồng bộ (integration task)
 
-Từ 2.8.0. Connector không khai báo `timeout` / `async` chạy **y như 2.7.x**, trừ một điểm (H4): lớp retry ngoài của `IntegrationClientExchange` chỉ còn chạy khi 401 (gia hạn token), nên lỗi IO / timeout gọi tối đa `retry.max-attempts` lần thay vì `max-attempts × max-attempts`.
+Từ 2.7.3; chờ kết quả trong request (`inline-wait-ms`) từ 2.7.4. Connector không khai báo `timeout` / `async` chạy **y như 2.7.2 trở về trước**, trừ một điểm (H4): lớp retry ngoài của `IntegrationClientExchange` chỉ còn chạy khi 401 (gia hạn token), nên lỗi IO / timeout gọi tối đa `retry.max-attempts` lần thay vì `max-attempts × max-attempts`.
 
 ```yaml
 integration:
@@ -343,26 +343,33 @@ integration:
     orderOracleErp:
       timeout:
         connect-ms: 10000      # không khai báo: không giới hạn
-        read-ms: 300000
+        read-ms: 300000        # bắt buộc khi async.enabled (từ 2.7.4), nếu không lời gọi có thể chờ vô hạn
       async:
         enabled: ${ERP_ASYNC_ENABLED:false}
         deadline-ms: 360000    # bắt buộc khi enabled hoặc idempotent; phải > read-ms, sai thì không khởi động
         idempotent: ${ERP_SUBMIT_IDEMPOTENT:false}   # true: cho action retry gửi lại đúng payload cũ
+        inline-wait-ms: 25000  # từ 2.7.4; mặc định 0 (trả về ngay như 2.7.3); phải >= 0 và < deadline-ms
 ```
 
 - **`timeout`:** connector có khối này được `RestClient` riêng (HttpClient của JDK qua `JdkClientHttpRequestFactory`, converter lấy từ `RestClient.Builder` của service), tạo một lần lúc khởi động. Connector khác dùng `integrationRestClient` chung.
 - **Handler:** service viết `AsyncIntegrationHandler<I, P>` (bean Spring) cho mỗi loại lời gọi: `prepare` (trong transaction của action, dựng payload + `context`), `call` (chỉ gọi đối tác), `classify` (2xx), `classifyError` (non-2xx có nghĩa nghiệp vụ, ví dụ "already exists"), `onSucceeded` / `onFailed` / `onUnconfirmed`, `onAlreadyDone`, `afterSucceededCommit`, `payloadType`. `action()` mặc định là tên connector; hai handler cùng connector phải đặt `action()` khác nhau.
 - **Gọi:** trong `@Handler`, đúng chỗ gọi đối tác: `IntegrationTaskView task = dispatcher.dispatch(actionContext, handler, input);`
   - `async.enabled: false` (mặc định): chạy `prepare` → `call` → phân loại → callback ngay trong request và transaction của action, không ghi bảng, trả `null`. Lỗi là lỗi handler ném trong callback. `afterSucceededCommit` chạy sau commit của request.
-  - `async.enabled: true`: insert task `PROCESSING` trong transaction của action, sau commit mới đưa vào `integrationTaskExecutor` (rollback thì không gửi). Trả `IntegrationTaskView {id, status, deadlineAt}`; service tự thêm vào response (field `integrationTask`). Worker gọi đối tác ngoài transaction, mang security context của người bấm, rồi ghi kết quả và gọi callback trong transaction mới, có fencing theo `attempt_id`. Bản ghi đang có task `PROCESSING`: `integration.task.in_progress`.
+  - `async.enabled: true`, `inline-wait-ms: 0` (mặc định): insert task `PROCESSING` trong transaction của action, sau commit mới đưa vào `integrationTaskExecutor` (rollback thì không gửi). Trả `IntegrationTaskView {id, status, deadlineAt}`; service tự thêm vào response (field `integrationTask`). Worker gọi đối tác ngoài transaction, mang security context của người bấm, rồi ghi kết quả và gọi callback trong transaction mới, có fencing theo `attempt_id`. Bản ghi đang có task `PROCESSING`: `integration.task.in_progress`.
+  - `async.enabled: true`, `inline-wait-ms > 0` (từ 2.7.4): `prepare` trong transaction của action; insert task `PROCESSING` bằng **transaction riêng** (`REQUIRES_NEW`, commit ngay: request khác thấy khóa, action rollback thì task vẫn còn); gửi đối tác sang `integrationTaskExecutor` **ngay**, request chờ tối đa `inline-wait-ms`. Bên nào nhận kết quả do một CAS quyết định, đúng một lần:
+    - **Có kết quả kịp:** callback chạy trong thread và transaction của action như chế độ đồng bộ (`IntegrationTaskContext.isAsync() == false`, có `taskId`; handler được ném lỗi của mình để action thất bại), task được cập nhật (fencing) trong cùng transaction, `afterSucceededCommit` sau commit. `dispatch` trả `null`: service **không** thêm gì vào response. Action rollback (callback ném lỗi hoặc lỗi sau đó): sau rollback task được ghi lại bằng transaction riêng; nếu đối tác đã thành công thì task thành `UNCONFIRMED`, outcome `ACTION_ROLLED_BACK`, giữ `response` của đối tác, log ERROR (đối tác đã làm, bản ghi thì không).
+    - **Hết giờ chờ:** ném `IntegrationTaskProcessingException` (`integration.task.processing`, 409, params `object`, `recordId`, `taskId`), transaction của action rollback. Khi đối tác trả lời, worker ghi kết quả và gọi callback trong transaction mới như `inline-wait-ms: 0`. Thread bị interrupt khi đang chờ: giữ cờ interrupt, xử lý như hết giờ.
+    - Executor đầy: task `FAILED` (`EXECUTOR_FULL`) bằng transaction riêng, `onFailed` chạy trong request như chế độ đồng bộ.
+    - Kết quả không phân loại được (handler `classify` / `onAlreadyDone` lỗi): `UNCONFIRMED` (`UNKNOWN_ERROR`).
+  - Task đã kết thúc (`SUCCEEDED` / `FAILED` / `UNCONFIRMED`) không chặn lần `dispatch` sau: bấm lại tạo task mới, `prepare` lại. Chỉ task `PROCESSING` chặn.
 - **Phân loại** (`IntegrationOutcomeClassifier`): 2xx theo `classify`; non-2xx hỏi `classifyError` trước. Mặc định: 408, 5xx, read timeout, đứt kết nối, lỗi khác → `UNCONFIRMED`; 4xx khác (cả 401 sau khi đã gia hạn), 429 hết lượt, không kết nối được → `FAILED`. `ALREADY_DONE`: `onAlreadyDone` trả dữ liệu thì `SUCCEEDED`, không thì `UNCONFIRMED`. Ở chế độ async, lời gọi chỉ được gửi lại trong cùng lần (theo `retry`) khi chắc chắn chưa tới đối tác (không kết nối được, 429) hoặc 401.
 - **Khóa bản ghi** (`IntegrationTaskGuard`): khi có ít nhất một connector bật async, mọi lệnh ghi qua `ActionExecutor` (update / delete / action / bulk, route portal và internal) lên bản ghi đang có task `PROCESSING` bị từ chối `integration.task.in_progress`; đọc và create không bị kiểm. Chỉ kiểm lần thực thi ngoài cùng của thread (request), không kiểm lệnh lồng trong handler / hook. Object con (dòng hàng) thì service gọi `integrationTaskGuard.check(objectName, id)`. Lệnh ghi qua `ObjectQueryRepository`, JPA, SQL viết tay không bị kiểm. Không bật async thì guard không chạy và không truy vấn gì.
 - **Job quét** (`AsyncIntegrationSweeper`, chỉ tạo khi có connector bật async): task `PROCESSING` quá `deadline_at` → `UNCONFIRMED` + `onUnconfirmed`, mỗi task một transaction, nhiều instance chạy cùng lúc được. Chạy không có user: callback nhận request context mà service trả về ngoài request.
 - **Action trên `integrationtask`** (quyền `UPDATE` trên object `integrationtask`): `PUT /integrationtask/{id}/retry` gửi lại task `UNCONFIRMED` đúng payload cũ (chỉ khi `idempotent: true`, không thì `integration.task.unconfirmed`); `PUT /integrationtask/{id}/resolve` với `{"status": "SUCCEEDED" | "FAILED", "reason": "...", "data": {...}}` chốt tay task `UNCONFIRMED` (ghi `resolved_by`, `resolve_reason`, change log nếu service bật cho `integrationtask`). Tạo / sửa / xóa `integrationtask` qua route generic bị từ chối.
-- **Mã lỗi** (`ObjectErrorCode`): `integration.task.in_progress` (`IntegrationTaskInProgressException`, service trả **409**), `integration.task.unconfirmed`, `integration.task.invalid_status` (`IntegrationTaskStateException`, 400). Service thêm `@ExceptionHandler` cho hai exception này.
+- **Mã lỗi** (`ObjectErrorCode`): `integration.task.in_progress` (`IntegrationTaskInProgressException`, service trả **409**), `integration.task.processing` (`IntegrationTaskProcessingException`, từ 2.7.4, service trả **409**; message "Tiến trình gửi ERP vẫn đang chạy, vui lòng tải lại sau ít phút", params có `taskId`), `integration.task.unconfirmed`, `integration.task.invalid_status` (`IntegrationTaskStateException`, 400). Service thêm `@ExceptionHandler` cho ba exception này (không có thì ra lỗi chung 500).
 - **`integration_log`:** `correlation_id` = id task cho mọi lần gọi của task, `timeout_ms` = `read-ms` của connector.
 
-**Migration** (mỗi service dùng GOM 2.8.0 tự tạo bảng, không có FK):
+**Migration** (mỗi service dùng GOM 2.7.3 trở lên tự tạo bảng, không có FK):
 
 ```sql
 CREATE TABLE IF NOT EXISTS integration_task (
@@ -583,7 +590,7 @@ Trạng thái: `PENDING_EXPORT → EXPORTING → COMPLETED | FAILED`.
 
 - **Tạo lỗi:** dùng factory `ObjectErrors` (`notFound`, `validateException`, `payloadInvalidException`…).
 - **Mã lỗi:** khai báo trong `ObjectErrorCode`.
-- **409:** `IntegrationTaskInProgressException` (`integration.task.in_progress`), như 403 của `RelationAccessDeniedException`.
+- **409:** `IntegrationTaskInProgressException` (`integration.task.in_progress`) và `IntegrationTaskProcessingException` (`integration.task.processing`), như 403 của `RelationAccessDeniedException`.
 - **Chi tiết lỗi validate:** `ObjectErrorDetail { code, params, message }`. Message validate lấy từ commons và là tiếng Việt.
 
 ## Build & phát hành

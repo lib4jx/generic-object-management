@@ -35,6 +35,11 @@ public class ObjectErrors {
         return new IntegrationTaskInProgressException(objectName, recordId, null, cause);
     }
 
+    public static IntegrationTaskProcessingException integrationTaskProcessing(String objectName, UUID recordId, UUID taskId,
+                                                                               Throwable cause) {
+        return new IntegrationTaskProcessingException(objectName, recordId, taskId, cause);
+    }
+
     public static IntegrationTaskStateException integrationTaskUnconfirmed(UUID taskId) {
         return new IntegrationTaskStateException(ObjectErrorCode.INTEGRATION_TASK_UNCONFIRMED, taskId, null,
                 "The partner of the task is not idempotent: check it, then resolve the task");

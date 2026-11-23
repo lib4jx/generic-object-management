@@ -909,9 +909,10 @@ public class MsmAutoConfiguration {
             IntegrationClient integrationClient,
             IntegrationCallRunner integrationCallRunner,
             IntegrationTaskStore integrationTaskStore,
-            AsyncIntegrationWorker asyncIntegrationWorker) {
+            AsyncIntegrationWorker asyncIntegrationWorker,
+            PlatformTransactionManager transactionManager) {
         return new AsyncIntegrationDispatcher(integrationProperties, integrationClient, integrationCallRunner,
-                integrationTaskStore, asyncIntegrationWorker);
+                integrationTaskStore, asyncIntegrationWorker, transactionManager);
     }
 
     @Bean

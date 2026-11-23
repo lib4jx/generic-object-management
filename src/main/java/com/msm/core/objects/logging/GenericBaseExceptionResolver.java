@@ -3,6 +3,7 @@ package com.msm.core.objects.logging;
 import com.msm.core.exceptions.GenericBaseException;
 import com.msm.core.exceptions.RelationAccessDeniedException;
 import com.msm.core.objects.exception.IntegrationTaskInProgressException;
+import com.msm.core.objects.exception.IntegrationTaskProcessingException;
 import org.springframework.http.HttpStatus;
 
 /**
@@ -12,7 +13,8 @@ import org.springframework.http.HttpStatus;
  * library type.
  *
  * <p>Logged as 400, except {@link RelationAccessDeniedException} (a filter reached, through a relation, an object
- * the caller may not view): 403, and {@link IntegrationTaskInProgressException}: 409, as the services answer them.
+ * the caller may not view): 403, and {@link IntegrationTaskInProgressException} /
+ * {@link IntegrationTaskProcessingException}: 409, as the services answer them.
  */
 
 public class GenericBaseExceptionResolver implements IntegrationErrorResolver {
@@ -34,7 +36,7 @@ public class GenericBaseExceptionResolver implements IntegrationErrorResolver {
         if (exception instanceof RelationAccessDeniedException) {
             return HttpStatus.FORBIDDEN;
         }
-        if (exception instanceof IntegrationTaskInProgressException) {
+        if (exception instanceof IntegrationTaskInProgressException || exception instanceof IntegrationTaskProcessingException) {
             return HttpStatus.CONFLICT;
         }
         return HttpStatus.BAD_REQUEST;

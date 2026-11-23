@@ -15,7 +15,9 @@ public enum ObjectErrorCode implements ErrorCode {
     /** UNCONFIRMED task of a connector that is not idempotent: not sent again, to be resolved by hand. */
     INTEGRATION_TASK_UNCONFIRMED("integration.task.unconfirmed"),
     /** The task is not in the status the action needs (retry / resolve need UNCONFIRMED). */
-    INTEGRATION_TASK_INVALID_STATUS("integration.task.invalid_status");
+    INTEGRATION_TASK_INVALID_STATUS("integration.task.invalid_status"),
+    /** The action waited {@code async.inline-wait-ms} without a result; the task goes on in the background (HTTP 409). */
+    INTEGRATION_TASK_PROCESSING("integration.task.processing");
 
     private final String code;
 

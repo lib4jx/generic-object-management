@@ -10,7 +10,8 @@ import java.util.UUID;
 
 /**
  * The call given to the result callbacks of {@link AsyncIntegrationHandler}. In sync mode (connector without
- * {@code async.enabled}) there is no task row: {@code taskId} and {@code attemptId} are null.
+ * {@code async.enabled}) there is no task row: {@code taskId} and {@code attemptId} are null. A result handled within
+ * {@code async.inline-wait-ms} has its task ids and {@code async = false}.
  */
 @Getter
 @Builder(toBuilder = true)
@@ -27,6 +28,11 @@ public class IntegrationTaskContext {
     /** The payload sent, of type {@link AsyncIntegrationHandler#payloadType()}. */
     private final Object payload;
     private final Map<String, Object> context;
+    /**
+     * false: the callback runs in the action's transaction (sync, or a result within {@code async.inline-wait-ms}) and
+     * may throw to fail the action, as a direct call did. true: it runs in the worker, the sweeper or a task action
+     * ({@code retry} / {@code resolve}).
+     */
     private final boolean async;
 
     public <X> X getPayloadAs(Class<X> type) {

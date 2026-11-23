@@ -13,6 +13,7 @@ import com.msm.core.objects.integration.data.ConnectorProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -28,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -60,7 +62,8 @@ class AsyncIntegrationDispatcherTest {
         properties.getConnectors().put(RecordingHandler.CONNECTOR, connector);
         when(integrationClient.connector(any(ConnectorNamed.class))).thenReturn(mock(ConnectorRequestBuilder.class));
         return new AsyncIntegrationDispatcher(properties, integrationClient,
-                new IntegrationCallRunner(new IntegrationOutcomeClassifier()), store, worker);
+                new IntegrationCallRunner(new IntegrationOutcomeClassifier()), store, worker,
+                mock(PlatformTransactionManager.class));
     }
 
     private ActionContext<Map<String, Object>> submit() {
@@ -235,6 +238,23 @@ class AsyncIntegrationDispatcherTest {
                 .hasFieldOrPropertyWithValue("code.code", "integration.task.in_progress");
         TransactionSimulation.commit();
         verify(worker, never()).submit(any());
+    }
+
+    @Test
+    void asyncRedispatchAfterAFinishedTaskStartsANewTask() {
+        // Arrange: the first task ended (FAILED or UNCONFIRMED); only a task PROCESSING blocks, in the table
+        AsyncIntegrationDispatcher dispatcher = dispatcher(true);
+
+        // Act
+        IntegrationTaskView first = dispatcher.dispatch(submit(), handler, Map.of("code", "DH1"));
+        IntegrationTaskView second = dispatcher.dispatch(submit(), handler, Map.of("code", "DH1"));
+
+        // Assert
+        ArgumentCaptor<NewIntegrationTask> inserted = ArgumentCaptor.forClass(NewIntegrationTask.class);
+        verify(store, times(2)).insert(inserted.capture());
+        assertThat(inserted.getAllValues()).extracting(NewIntegrationTask::recordId).containsOnly(orderId);
+        assertThat(second.id()).isNotEqualTo(first.id());
+        assertThat(handler.events).containsExactly("prepare", "prepare");
     }
 
     @Test

@@ -5,7 +5,7 @@ import com.msm.core.objects.config.IntegrationProperties;
 import com.msm.core.objects.integration.IntegrationClient;
 import com.msm.core.objects.integration.data.ConnectorProperties;
 import com.msm.core.security.RequestContextHolder;
-import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -17,12 +17,15 @@ import java.util.UUID;
  *   <li>Connector without {@code async.enabled} (default): prepare, call, classify and callback run at once in the
  *   caller's thread and transaction, as a direct call did; no task row. Errors are the ones the handler throws in its
  *   callbacks. {@code afterSucceededCommit} runs after the caller's transaction commits. Returns null.</li>
- *   <li>{@code async.enabled}: prepare, then a task PROCESSING is inserted in the caller's transaction and the call is
- *   queued once it commits (never on rollback). A record with a task PROCESSING: {@code integration.task.in_progress}.
- *   Returns the task to put in the action's response.</li>
+ *   <li>{@code async.enabled} with {@code inline-wait-ms: 0}: prepare, then a task PROCESSING is inserted in the
+ *   caller's transaction and the call is queued once it commits (never on rollback). Returns the task to put in the
+ *   action's response.</li>
+ *   <li>{@code async.enabled} with {@code inline-wait-ms > 0}: prepare, the task is inserted in its own transaction
+ *   and sent at once; a result within the wait is handled as the sync path and null is returned, else
+ *   {@code integration.task.processing} and the worker records the result ({@code InlineWaitDispatch}).</li>
  * </ul>
+ * In both async modes a record with a task PROCESSING gets {@code integration.task.in_progress}.
  */
-@RequiredArgsConstructor
 public class AsyncIntegrationDispatcher {
 
     private final IntegrationProperties properties;
@@ -30,8 +33,20 @@ public class AsyncIntegrationDispatcher {
     private final IntegrationCallRunner runner;
     private final IntegrationTaskStore store;
     private final AsyncIntegrationWorker worker;
+    private final InlineWaitDispatch inlineWait;
     private final AfterCommit afterCommit = new AfterCommit();
     private final IntegrationTaskJson json = new IntegrationTaskJson();
+
+    public AsyncIntegrationDispatcher(IntegrationProperties properties, IntegrationClient integrationClient,
+                                      IntegrationCallRunner runner, IntegrationTaskStore store,
+                                      AsyncIntegrationWorker worker, PlatformTransactionManager transactionManager) {
+        this.properties = properties;
+        this.integrationClient = integrationClient;
+        this.runner = runner;
+        this.store = store;
+        this.worker = worker;
+        this.inlineWait = new InlineWaitDispatch(runner, store, worker, transactionManager);
+    }
 
     public <I, P> IntegrationTaskView dispatch(ActionContext<?> actionContext, AsyncIntegrationHandler<I, P> handler, I input) {
         PreparedCall<P> prepared = handler.prepare(actionContext, input);
@@ -72,9 +87,9 @@ public class AsyncIntegrationDispatcher {
         Instant deadlineAt = startedAt.plus(Duration.ofMillis(connector.getAsync().getDeadlineMs()));
         UUID taskId = UUID.randomUUID();
         UUID attemptId = UUID.randomUUID();
-        store.insert(new NewIntegrationTask(taskId, handler.connector().getName(), actionContext.getResource(), recordId,
-                handler.action(), attemptId, json.write(prepared.payload()), json.write(prepared.context()), startedAt,
-                deadlineAt, RequestContextHolder.getRequestContext().getUsername()));
+        NewIntegrationTask row = new NewIntegrationTask(taskId, handler.connector().getName(), actionContext.getResource(),
+                recordId, handler.action(), attemptId, json.write(prepared.payload()), json.write(prepared.context()),
+                startedAt, deadlineAt, RequestContextHolder.getRequestContext().getUsername());
         IntegrationTaskContext task = IntegrationTaskContext.builder()
                 .taskId(taskId)
                 .connector(handler.connector().getName())
@@ -88,6 +103,12 @@ public class AsyncIntegrationDispatcher {
                 .async(true)
                 .build();
         AsyncTaskRun<P> run = new AsyncTaskRun<>(handler, task, prepared.payload());
+        long inlineWaitMs = connector.getAsync().getInlineWaitMs();
+        if (inlineWaitMs > 0) {
+            inlineWait.run(run, row, inlineWaitMs);
+            return null;
+        }
+        store.insert(row);
         afterCommit.run(() -> worker.submit(run));
         return new IntegrationTaskView(taskId, IntegrationTaskStatus.PROCESSING, deadlineAt);
     }
