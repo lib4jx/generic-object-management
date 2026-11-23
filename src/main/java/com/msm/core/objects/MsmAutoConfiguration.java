@@ -130,6 +130,7 @@ import com.msm.core.objects.logging.GenericBaseExceptionResolver;
 import com.msm.core.objects.logging.IntegrationErrorResolver;
 import com.msm.core.objects.logging.IntegrationLogWriter;
 import com.msm.core.objects.logging.IntegrationLoggingAspect;
+import com.msm.core.objects.logging.MdcTaskDecorator;
 import com.msm.core.objects.repository.DefaultObjectQueryRepository;
 import com.msm.core.objects.repository.DefaultRepositoryFactory;
 import com.msm.core.objects.repository.InternalObjectQueryRepository;
@@ -299,6 +300,7 @@ public class MsmAutoConfiguration {
         executor.setCorePoolSize(props.getExecutor().getCore());
         executor.setMaxPoolSize(props.getExecutor().getMax());
         executor.setThreadNamePrefix("HookTaskExecutor-");
+        executor.setTaskDecorator(new MdcTaskDecorator());
         executor.initialize();
         return new DelegatingSecurityContextExecutor(executor);
     }
@@ -873,6 +875,7 @@ public class MsmAutoConfiguration {
         executor.setMaxPoolSize(props.getMaxConcurrency());
         executor.setQueueCapacity(props.getQueueCapacity());
         executor.setThreadNamePrefix("IntegrationTaskExecutor-");
+        executor.setTaskDecorator(new MdcTaskDecorator());
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         executor.initialize();
         return new DelegatingSecurityContextExecutor(executor);
