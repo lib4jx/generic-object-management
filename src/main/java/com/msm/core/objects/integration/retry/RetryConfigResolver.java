@@ -19,6 +19,9 @@ import java.util.function.Predicate;
 @RequiredArgsConstructor
 public class RetryConfigResolver {
 
+    private static final int HTTP_UNAUTHORIZED = 401;
+    private static final int HTTP_TOO_MANY_REQUESTS = 429;
+
     private final IntegrationProperties properties;
 
     private final RetryDefaultProperties defaults;
@@ -49,8 +52,26 @@ public class RetryConfigResolver {
     }
 
     public Retry resolve(HttpRequestContext context) {
-        RetryConfig config = retryConfig(context, shouldRetryPredicate(), List.of(IllegalArgumentException.class, NullPointerException.class));
+        Predicate<Throwable> predicate = context.isAsyncTask() ? shouldRetryAsyncPredicate() : shouldRetryPredicate();
+        RetryConfig config = retryConfig(context, predicate, List.of(IllegalArgumentException.class, NullPointerException.class));
         return Retry.of(context.getConnectorName() + "-retry", config);
+    }
+
+    /**
+     * Call of an async integration task: sent again only when the partner certainly did not get it (no connection,
+     * 429). A read timeout, a connection reset, 408 or 5xx may have reached the partner: no retry, the task becomes
+     * UNCONFIRMED. 401 is renewed by the exchange retry.
+     */
+    private Predicate<Throwable> shouldRetryAsyncPredicate() {
+        return throwable -> {
+            if (throwable instanceof IntegrationException ex && ex.getStatusCode() != null) {
+                return ex.getStatusCode() == HTTP_TOO_MANY_REQUESTS;
+            }
+            if (throwable instanceof HttpClientErrorException ex) {
+                return ex.getStatusCode().value() == HTTP_TOO_MANY_REQUESTS;
+            }
+            return TransportErrorKind.of(throwable) == TransportErrorKind.NOT_SENT;
+        };
     }
 
     private Predicate<Throwable> shouldRetryPredicate() {
@@ -66,7 +87,7 @@ public class RetryConfigResolver {
     }
 
     private boolean checkStatusCode(int statusCode) {
-        if (statusCode == 429) {
+        if (statusCode == HTTP_TOO_MANY_REQUESTS) {
             return true;
         }
         return statusCode < 400 || statusCode > 500;
@@ -81,6 +102,10 @@ public class RetryConfigResolver {
     }
 
 
+    /**
+     * The exchange retry only renews the token: 401, then the next attempt asks for a new one. Every other error was
+     * already retried by {@link #resolve}; retrying it here too made max-attempts × max-attempts calls.
+     */
     private Predicate<Throwable> shouldExchangeRetryPredicate() {
         return throwable -> {
             if (throwable instanceof IntegrationException ex) {
@@ -89,11 +114,11 @@ public class RetryConfigResolver {
             if (throwable instanceof HttpClientErrorException ex) {
                 return checkStatusCodeExchangeRetry(ex.getStatusCode().value());
             }
-            return true;
+            return false;
         };
     }
 
-    private boolean checkStatusCodeExchangeRetry(int statusCode) {
-        return statusCode == 401;
+    private boolean checkStatusCodeExchangeRetry(Integer statusCode) {
+        return statusCode != null && statusCode == HTTP_UNAUTHORIZED;
     }
 }

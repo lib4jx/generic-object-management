@@ -52,7 +52,15 @@ public class TracingMiddleware extends AbstractMiddleware {
         logRecord.set(IntegrationLogMeta.SPAN_ID, LogTraceUtils.getSpanIdLog());
         logRecord.set(IntegrationLogMeta.TENANT_ID, RequestContextHolder.getRequestContext().getTenantCode());
         logRecord.set(IntegrationLogMeta.AUTH_PROVIDER, context.getAuthProvider());
+        setCallFields(logRecord, context);
         context.put("integrationLog", logRecord);
+    }
+
+    /** Task id of an async integration call (to find every sending of a task) and the read timeout of the connector. */
+    private void setCallFields(DataRecord logRecord, HttpRequestContext context) {
+        Object taskId = context.get(HttpRequestContext.ATTRIBUTE_ASYNC_TASK_ID);
+        logRecord.set(IntegrationLogMeta.CORRELATION_ID, taskId == null ? null : taskId.toString());
+        logRecord.set(IntegrationLogMeta.TIMEOUT_MS, context.getTimeoutMs());
     }
 
     @Override
@@ -99,6 +107,7 @@ public class TracingMiddleware extends AbstractMiddleware {
             logRecord.set(IntegrationLogMeta.CONNECTOR, context.getConnectorName());
             logRecord.set(IntegrationLogMeta.METHOD, context.getMethod().name());
             logRecord.set(IntegrationLogMeta.ENDPOINT, context.resolveUrl());
+            setCallFields(logRecord, context);
         }
 
         logRecord.set(IntegrationLogMeta.COMPLETED_AT, Instant.now());

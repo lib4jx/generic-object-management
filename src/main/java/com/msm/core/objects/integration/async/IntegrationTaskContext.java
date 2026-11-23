@@ -1,0 +1,39 @@
+package com.msm.core.objects.integration.async;
+
+import com.msm.core.commons.Utils;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.ToString;
+
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * The call given to the result callbacks of {@link AsyncIntegrationHandler}. In sync mode (connector without
+ * {@code async.enabled}) there is no task row: {@code taskId} and {@code attemptId} are null.
+ */
+@Getter
+@Builder(toBuilder = true)
+@ToString(exclude = {"payload", "context"})
+public class IntegrationTaskContext {
+    private final UUID taskId;
+    private final String connector;
+    private final String objectName;
+    private final UUID recordId;
+    /** {@link AsyncIntegrationHandler#action()} of the handler. */
+    private final String action;
+    private final UUID attemptId;
+    private final int attemptCount;
+    /** The payload sent, of type {@link AsyncIntegrationHandler#payloadType()}. */
+    private final Object payload;
+    private final Map<String, Object> context;
+    private final boolean async;
+
+    public <X> X getPayloadAs(Class<X> type) {
+        return Utils.O.convertToType(payload, type);
+    }
+
+    public <X> X getContextValue(String key, Class<X> type) {
+        return context == null ? null : Utils.O.convertToType(context.get(key), type);
+    }
+}

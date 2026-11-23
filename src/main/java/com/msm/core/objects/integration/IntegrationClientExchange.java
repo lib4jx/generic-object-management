@@ -6,19 +6,32 @@ import com.msm.core.objects.integration.context.ExecutionEvent;
 import com.msm.core.objects.integration.context.HttpRequestContext;
 import com.msm.core.objects.integration.middleware.HttpMiddlewareChain;
 import com.msm.core.objects.integration.retry.RetryExecutor;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 
 import java.time.Instant;
 
-@RequiredArgsConstructor
 @Slf4j
 public class IntegrationClientExchange {
-    private final RequestClient requestClient;
+    private final ConnectorRequestClientRegistry requestClients;
     private final HttpMiddlewareChain chain;
     private final RetryExecutor retryExecutor;
     private final RetryExecutor exchangeRetryExecutor;
+
+    /** Every connector on {@code requestClient}, as before 2.8.0. */
+    public IntegrationClientExchange(RequestClient requestClient, HttpMiddlewareChain chain, RetryExecutor retryExecutor,
+                                     RetryExecutor exchangeRetryExecutor) {
+        this(new ConnectorRequestClientRegistry(requestClient), chain, retryExecutor, exchangeRetryExecutor);
+    }
+
+    /** The client of each call is the one of its connector ({@code timeout} block), else the shared one. */
+    public IntegrationClientExchange(ConnectorRequestClientRegistry requestClients, HttpMiddlewareChain chain,
+                                     RetryExecutor retryExecutor, RetryExecutor exchangeRetryExecutor) {
+        this.requestClients = requestClients;
+        this.chain = chain;
+        this.retryExecutor = retryExecutor;
+        this.exchangeRetryExecutor = exchangeRetryExecutor;
+    }
 
     public <T> T exchange(HttpRequestContext context, Class<T> responseType) {
 
@@ -122,7 +135,7 @@ public class IntegrationClientExchange {
 
     private <T> T execute(HttpRequestContext context, Class<T> responseType) {
 
-        return requestClient.exchange(
+        return requestClients.get(context.getConnectorName()).exchange(
                 context.getBaseUrl(),
                 context.getPath(),
                 context.getMethod(),
@@ -135,7 +148,7 @@ public class IntegrationClientExchange {
 
     private <T> T execute(HttpRequestContext context, ParameterizedTypeReference<T> responseType) {
 
-        return requestClient.exchange(
+        return requestClients.get(context.getConnectorName()).exchange(
                 context.getBaseUrl(),
                 context.getPath(),
                 context.getMethod(),

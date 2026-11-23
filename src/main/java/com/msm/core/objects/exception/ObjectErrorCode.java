@@ -9,7 +9,13 @@ public enum ObjectErrorCode implements ErrorCode {
     INTEGRATION_REQUEST_ERROR("INTEGRATION_REQUEST_ERROR"),
     AUTH_ERROR("AUTH_ERROR"),
     RATE_LIMIT("RATE_LIMIT"),
-    PAYLOAD_INVALID("PAYLOAD_INVALID");
+    PAYLOAD_INVALID("PAYLOAD_INVALID"),
+    /** The record has an integration task PROCESSING: no write until it ends (HTTP 409). */
+    INTEGRATION_TASK_IN_PROGRESS("integration.task.in_progress"),
+    /** UNCONFIRMED task of a connector that is not idempotent: not sent again, to be resolved by hand. */
+    INTEGRATION_TASK_UNCONFIRMED("integration.task.unconfirmed"),
+    /** The task is not in the status the action needs (retry / resolve need UNCONFIRMED). */
+    INTEGRATION_TASK_INVALID_STATUS("integration.task.invalid_status");
 
     private final String code;
 

@@ -8,4 +8,21 @@ public class ConnectorProperties {
     private String baseUrl;
     private AuthProviderProperties auth;
     private RetryProperties retry = new RetryProperties();
+    /** Null: shared client, no timeout. */
+    private TimeoutProperties timeout;
+    /** Null: calls run in the request. */
+    private AsyncProperties async;
+
+    public boolean asyncEnabled() {
+        return async != null && async.isEnabled();
+    }
+
+    public boolean idempotent() {
+        return async != null && async.isIdempotent();
+    }
+
+    /** {@code timeout.read-ms}, or null without a read timeout. */
+    public Long readTimeoutMs() {
+        return timeout == null ? null : timeout.getReadMs();
+    }
 }

@@ -84,10 +84,24 @@ import com.msm.core.objects.dataexchange.imports.s3.S3FileUtils;
 import com.msm.core.objects.handler.GenericObjectHandler;
 import com.msm.core.objects.hook.GenericHookEvent;
 import com.msm.core.objects.hook.system.SystemHookEvent;
+import com.msm.core.objects.integration.ConnectorRequestClientRegistry;
 import com.msm.core.objects.integration.DefaultRequestClient;
 import com.msm.core.objects.integration.IntegrationClient;
 import com.msm.core.objects.integration.IntegrationClientExchange;
 import com.msm.core.objects.integration.RequestClient;
+import com.msm.core.objects.integration.async.AsyncIntegrationDispatcher;
+import com.msm.core.objects.integration.async.AsyncIntegrationHandler;
+import com.msm.core.objects.integration.async.AsyncIntegrationHandlerRegistry;
+import com.msm.core.objects.integration.async.AsyncIntegrationSweeper;
+import com.msm.core.objects.integration.async.AsyncIntegrationWorker;
+import com.msm.core.objects.integration.async.IntegrationCallRunner;
+import com.msm.core.objects.integration.async.IntegrationOutcomeClassifier;
+import com.msm.core.objects.integration.async.IntegrationTaskActionService;
+import com.msm.core.objects.integration.async.IntegrationTaskGuard;
+import com.msm.core.objects.integration.async.IntegrationTaskGuardedActionExecutor;
+import com.msm.core.objects.integration.async.IntegrationTaskHandler;
+import com.msm.core.objects.integration.async.IntegrationTaskStore;
+import com.msm.core.objects.integration.async.OnAsyncIntegrationCondition;
 import com.msm.core.objects.integration.auth.apikey.ApiKeyAuthProvider;
 import com.msm.core.objects.integration.auth.apikey.ApiKeyQueryProvider;
 import com.msm.core.objects.integration.auth.basic.BasicEncodedProvider;
@@ -99,8 +113,10 @@ import com.msm.core.objects.integration.auth.oauth2.CachedOAuth2TokenProvider;
 import com.msm.core.objects.integration.auth.oauth2.OAuth2AuthProvider;
 import com.msm.core.objects.integration.auth.oauth2.password.CachedOAuth2PasswordTokenProvider;
 import com.msm.core.objects.integration.auth.oauth2.password.OAuth2PasswordAuthProvider;
+import com.msm.core.objects.integration.data.AsyncExecutorProperties;
 import com.msm.core.objects.integration.data.retry.RetryDefaultProperties;
 import com.msm.core.objects.integration.factory.AuthProviderFactory;
+import com.msm.core.objects.integration.factory.RestClientFactory;
 import com.msm.core.objects.integration.factory.TokenProviderFactory;
 import com.msm.core.objects.integration.middleware.AuthMiddleware;
 import com.msm.core.objects.integration.middleware.HttpMiddlewareChain;
@@ -165,6 +181,7 @@ import org.springframework.cache.CacheManager;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.core.env.Environment;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -391,10 +408,12 @@ public class MsmAutoConfiguration {
         return new DefaultHookEngine(new DefaultAsyncExecutor(hookTaskExecutor));
     }
 
+    /** With a connector in async mode, every generic write first goes through {@link IntegrationTaskGuard}. */
     @Bean
     @ConditionalOnMissingBean
-    public ActionExecutor actionExecutor(HookEngine hookEngine) {
-        return new DefaultActionExecutor(hookEngine);
+    public ActionExecutor actionExecutor(HookEngine hookEngine, IntegrationTaskGuard integrationTaskGuard) {
+        ActionExecutor executor = new DefaultActionExecutor(hookEngine);
+        return integrationTaskGuard.isEnabled() ? new IntegrationTaskGuardedActionExecutor(executor, integrationTaskGuard) : executor;
     }
 
     @Bean(name = "attributeTypeValidator")
@@ -804,12 +823,134 @@ public class MsmAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public IntegrationClientExchange integrationClientExchange(
+    public RestClientFactory restClientFactory(RestClient.Builder builder) {
+        return new RestClientFactory(builder);
+    }
+
+    /** A client per connector with a {@code timeout} block, the shared {@code integrationRequestClient} otherwise. */
+    @Bean
+    @ConditionalOnMissingBean
+    public ConnectorRequestClientRegistry connectorRequestClientRegistry(
+            IntegrationProperties integrationProperties,
             @Qualifier("integrationRequestClient") RequestClient requestClient,
+            RestClientFactory restClientFactory) {
+        return new ConnectorRequestClientRegistry(integrationProperties, requestClient, restClientFactory);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public IntegrationClientExchange integrationClientExchange(
+            ConnectorRequestClientRegistry connectorRequestClientRegistry,
             HttpMiddlewareChain chain,
             @Qualifier("handleRequestRetry") RetryExecutor handleRequestRetry,
             @Qualifier("exchangeRetryExecutor") RetryExecutor exchangeRetryExecutor) {
-        return new IntegrationClientExchange(requestClient, chain, handleRequestRetry, exchangeRetryExecutor);
+        return new IntegrationClientExchange(connectorRequestClientRegistry, chain, handleRequestRetry, exchangeRetryExecutor);
+    }
+
+    //============ Async integration task ===========
+
+    @Bean
+    @ConditionalOnMissingBean
+    public IntegrationTaskStore integrationTaskStore(DSLContext dslContext) {
+        return new IntegrationTaskStore(dslContext);
+    }
+
+    /** Does nothing (no query) while no connector has {@code async.enabled}. */
+    @Bean
+    @ConditionalOnMissingBean
+    public IntegrationTaskGuard integrationTaskGuard(IntegrationTaskStore integrationTaskStore,
+                                                     IntegrationProperties integrationProperties) {
+        return new IntegrationTaskGuard(integrationTaskStore, integrationProperties.hasAsyncConnector());
+    }
+
+    /** Bounded; full: the task is FAILED (not run by the caller). Carries the security context of the user. */
+    @Bean(name = "integrationTaskExecutor")
+    @ConditionalOnMissingBean(name = "integrationTaskExecutor")
+    public Executor integrationTaskExecutor(IntegrationProperties integrationProperties) {
+        AsyncExecutorProperties props = integrationProperties.getAsyncExecutor();
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(props.getMaxConcurrency());
+        executor.setMaxPoolSize(props.getMaxConcurrency());
+        executor.setQueueCapacity(props.getQueueCapacity());
+        executor.setThreadNamePrefix("IntegrationTaskExecutor-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.initialize();
+        return new DelegatingSecurityContextExecutor(executor);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public IntegrationOutcomeClassifier integrationOutcomeClassifier() {
+        return new IntegrationOutcomeClassifier();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public IntegrationCallRunner integrationCallRunner(IntegrationOutcomeClassifier integrationOutcomeClassifier) {
+        return new IntegrationCallRunner(integrationOutcomeClassifier);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AsyncIntegrationWorker asyncIntegrationWorker(
+            @Qualifier("integrationTaskExecutor") Executor integrationTaskExecutor,
+            IntegrationClient integrationClient,
+            IntegrationCallRunner integrationCallRunner,
+            IntegrationTaskStore integrationTaskStore,
+            PlatformTransactionManager transactionManager) {
+        return new AsyncIntegrationWorker(integrationTaskExecutor, integrationClient, integrationCallRunner,
+                integrationTaskStore, transactionManager);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AsyncIntegrationDispatcher asyncIntegrationDispatcher(
+            IntegrationProperties integrationProperties,
+            IntegrationClient integrationClient,
+            IntegrationCallRunner integrationCallRunner,
+            IntegrationTaskStore integrationTaskStore,
+            AsyncIntegrationWorker asyncIntegrationWorker) {
+        return new AsyncIntegrationDispatcher(integrationProperties, integrationClient, integrationCallRunner,
+                integrationTaskStore, asyncIntegrationWorker);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AsyncIntegrationHandlerRegistry asyncIntegrationHandlerRegistry(
+            ObjectProvider<AsyncIntegrationHandler<?, ?>> asyncIntegrationHandlers) {
+        return new AsyncIntegrationHandlerRegistry(() -> asyncIntegrationHandlers.orderedStream().toList());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @Conditional(OnAsyncIntegrationCondition.class)
+    public AsyncIntegrationSweeper asyncIntegrationSweeper(
+            IntegrationTaskStore integrationTaskStore,
+            AsyncIntegrationHandlerRegistry asyncIntegrationHandlerRegistry,
+            IntegrationCallRunner integrationCallRunner,
+            IntegrationProperties integrationProperties,
+            PlatformTransactionManager transactionManager) {
+        return new AsyncIntegrationSweeper(integrationTaskStore, asyncIntegrationHandlerRegistry, integrationCallRunner,
+                integrationProperties.getAsyncExecutor(), transactionManager);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public IntegrationTaskActionService integrationTaskActionService(
+            IntegrationTaskStore integrationTaskStore,
+            AsyncIntegrationHandlerRegistry asyncIntegrationHandlerRegistry,
+            AsyncIntegrationWorker asyncIntegrationWorker,
+            IntegrationCallRunner integrationCallRunner,
+            IntegrationProperties integrationProperties,
+            ManualChangeLog manualChangeLog) {
+        return new IntegrationTaskActionService(integrationTaskStore, asyncIntegrationHandlerRegistry,
+                asyncIntegrationWorker, integrationCallRunner, integrationProperties, manualChangeLog);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public IntegrationTaskHandler integrationTaskHandler(IntegrationTaskActionService integrationTaskActionService) {
+        return new IntegrationTaskHandler(integrationTaskActionService);
     }
 
     @Bean

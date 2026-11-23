@@ -21,6 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
 @ToString
 public class HttpRequestContext {
 
+    /** Attribute set by {@code AsyncIntegrationWorker}: id of the integration task the call belongs to. */
+    public static final String ATTRIBUTE_ASYNC_TASK_ID = "integration.asyncTaskId";
+
 //    private String traceId;
 //
 //    private String integrationName;
@@ -74,6 +77,9 @@ public class HttpRequestContext {
 
     private Boolean strictJsonMode;
 
+    /** {@code timeout.read-ms} of the connector, null without read timeout; written to {@code integration_log.timeout_ms}. */
+    private Long timeoutMs;
+
 //    private HttpRequest httpRequest;
 
     public String resolveUrl() {
@@ -90,6 +96,11 @@ public class HttpRequestContext {
     @SuppressWarnings("unchecked")
     public <T> T get(String key) {
         return (T) attributes.get(key);
+    }
+
+    /** The call is made by the worker of an async integration task: a call that may have reached the partner is not retried. */
+    public boolean isAsyncTask() {
+        return attributes.containsKey(ATTRIBUTE_ASYNC_TASK_ID);
     }
 
     private IntegrationLog integrationLog;

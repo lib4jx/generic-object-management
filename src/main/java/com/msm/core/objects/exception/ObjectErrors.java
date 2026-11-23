@@ -4,6 +4,7 @@ import com.msm.core.exceptions.CommonErrors;
 import com.msm.core.exceptions.ObjectNotFoundException;
 
 import java.util.List;
+import java.util.UUID;
 
 public class ObjectErrors {
     public static ObjectValidateException validateException(String objectName, List<ObjectErrorDetail> errors) {
@@ -24,5 +25,23 @@ public class ObjectErrors {
 
     public static CreateInstanceException createInstanceException(String msg, Throwable cause) {
         return new CreateInstanceException(msg, cause);
+    }
+
+    public static IntegrationTaskInProgressException integrationTaskInProgress(String objectName, UUID recordId, UUID taskId) {
+        return new IntegrationTaskInProgressException(objectName, recordId, taskId, null);
+    }
+
+    public static IntegrationTaskInProgressException integrationTaskInProgress(String objectName, UUID recordId, Throwable cause) {
+        return new IntegrationTaskInProgressException(objectName, recordId, null, cause);
+    }
+
+    public static IntegrationTaskStateException integrationTaskUnconfirmed(UUID taskId) {
+        return new IntegrationTaskStateException(ObjectErrorCode.INTEGRATION_TASK_UNCONFIRMED, taskId, null,
+                "The partner of the task is not idempotent: check it, then resolve the task");
+    }
+
+    public static IntegrationTaskStateException integrationTaskInvalidStatus(UUID taskId, String status) {
+        return new IntegrationTaskStateException(ObjectErrorCode.INTEGRATION_TASK_INVALID_STATUS, taskId, status,
+                "The task is " + status + ", the action needs UNCONFIRMED");
     }
 }

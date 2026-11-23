@@ -31,6 +31,8 @@ public class ConnectorRequestBuilder {
 
     private final Map<String, Object> queryParams = new HashMap<>();
 
+    private final Map<String, Object> attributes = new HashMap<>();
+
     private Integer retryAttempts;
 
     private String authProvider;
@@ -66,6 +68,12 @@ public class ConnectorRequestBuilder {
 
     public ConnectorRequestBuilder queryParam(Map<String, Object> params) {
         queryParams.putAll(params);
+        return this;
+    }
+
+    /** Copied into the attributes of every request context this builder creates (see {@link HttpRequestContext#put}). */
+    public ConnectorRequestBuilder attribute(String key, Object value) {
+        attributes.put(key, value);
         return this;
     }
 
@@ -207,7 +215,7 @@ public class ConnectorRequestBuilder {
             Object body) {
 
         ConnectorProperties connector = integrationProperties.getConnectors().get(connectorNamed.getName());
-        return HttpRequestContext.builder()
+        HttpRequestContext context = HttpRequestContext.builder()
                 .connectorName(connectorNamed.getName())
                 .strictJsonMode(Utils.O.defaultIfNull(strictJsonMode, () -> Boolean.FALSE))
                 .baseUrl(connector.getBaseUrl())
@@ -228,6 +236,9 @@ public class ConnectorRequestBuilder {
                                 : connector.getRetry().getMaxAttempts()
                 )
                 .retryConfig(retryConfig)
+                .timeoutMs(connector.readTimeoutMs())
                 .build();
+        attributes.forEach(context::put);
+        return context;
     }
 }
