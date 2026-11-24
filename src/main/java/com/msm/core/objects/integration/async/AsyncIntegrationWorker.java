@@ -16,8 +16,8 @@ import java.util.concurrent.RejectedExecutionException;
 /**
  * Sends a task on {@code integrationTaskExecutor}, outside any transaction (with the security context of the user who
  * started it), then writes the result in a new transaction fenced on {@code attempt_id} and status PROCESSING, and calls
- * the handler's callback in that same transaction. A result that lost the race (the sweeper or a new sending got there
- * first) is dropped with a WARN; the answer stays in {@code integration_log} (correlation id = task id). With
+ * the handler's callback in that same transaction. A result that lost the race (the sweeper got there first) is dropped
+ * with a WARN; the answer stays in {@code integration_log} (correlation id = task id). With
  * {@code inline-wait-ms > 0} the call is sent at once ({@code sendNow}) and the worker records the result only when the
  * action stopped waiting ({@code InlineWaitDispatch}).
  */

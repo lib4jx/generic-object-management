@@ -33,7 +33,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The SQL of {@link IntegrationTaskStore} and the sweeper against a real Postgres, with the README migration.
+ * The SQL of {@link IntegrationTaskStore}, the sweeper and {@link IntegrationTaskLogReader} against a real Postgres,
+ * with the README migration and an {@code integration_log} partitioned on {@code created_at} as in orders (V100062).
  * Same database as {@code ChangeLogPostgresIT}:
  * {@code CHANGELOG_PG_URL=jdbc:postgresql://localhost:55432/changelog ./gradlew test --tests '*IntegrationTaskPostgresIT'}
  * (user {@code CHANGELOG_PG_USER}, default postgres; password {@code CHANGELOG_PG_PASSWORD}, default test).
@@ -56,9 +57,7 @@ class IntegrationTaskPostgresIT {
                 outcome         VARCHAR(20),
                 attempt_id      UUID         NOT NULL,
                 attempt_count   INT          NOT NULL DEFAULT 1,
-                request         JSONB,
                 context         JSONB,
-                response        JSONB,
                 error_code      VARCHAR(60),
                 error_message   VARCHAR(1000),
                 resolved_by     VARCHAR(100),
@@ -77,6 +76,31 @@ class IntegrationTaskPostgresIT {
                 ON integration_task (object_name, record_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_integration_task_deadline
                 ON integration_task (deadline_at) WHERE status = 'PROCESSING';
+            """;
+
+    /**
+     * {@code integration_log} as in orders (V100020 columns read by the reader, partitioned on {@code created_at} as
+     * V100062, index of the README), three quarter partitions.
+     */
+    private static final String LOG_DDL = """
+            CREATE TABLE integration_log (
+                id              UUID         NOT NULL DEFAULT gen_random_uuid(),
+                created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                completed_at    TIMESTAMPTZ,
+                correlation_id  VARCHAR(300),
+                status_code     INTEGER,
+                status          VARCHAR(50),
+                timeout_ms      BIGINT,
+                error_code      VARCHAR(100),
+                error_message   TEXT,
+                request_body    TEXT,
+                response_body   TEXT
+            ) PARTITION BY RANGE (created_at);
+            CREATE TABLE integration_log_2026q1 PARTITION OF integration_log FOR VALUES FROM ('2026-01-01Z') TO ('2026-04-01Z');
+            CREATE TABLE integration_log_2026q2 PARTITION OF integration_log FOR VALUES FROM ('2026-04-01Z') TO ('2026-07-01Z');
+            CREATE TABLE integration_log_2026q3 PARTITION OF integration_log FOR VALUES FROM ('2026-07-01Z') TO ('2026-10-01Z');
+            CREATE INDEX IF NOT EXISTS idx_integration_log_correlation_id
+                ON integration_log (correlation_id) WHERE correlation_id IS NOT NULL;
             """;
 
     private static DSLContext dsl;
@@ -99,13 +123,15 @@ class IntegrationTaskPostgresIT {
     void setUp() {
         dsl.execute("drop table if exists integration_task");
         dsl.execute(DDL);
+        dsl.execute("drop table if exists integration_log");
+        dsl.execute(LOG_DDL);
         store = new IntegrationTaskStore(dsl);
     }
 
     private NewIntegrationTask newTask(UUID recordId, Instant deadlineAt) {
         Instant now = Instant.now();
         return new NewIntegrationTask(UUID.randomUUID(), RecordingHandler.CONNECTOR, OBJECT, recordId, RecordingHandler.CONNECTOR,
-                UUID.randomUUID(), "{\"code\":\"DH1\"}", "{\"target\":\"CANCELED\"}", now, deadlineAt, "user");
+                UUID.randomUUID(), "{\"target\":\"CANCELED\"}", now, deadlineAt, "user");
     }
 
     @Test
@@ -121,7 +147,7 @@ class IntegrationTaskPostgresIT {
         IntegrationTaskRow row = store.findById(first.id()).orElseThrow();
         assertThat(row.status()).isEqualTo(IntegrationTaskStatus.PROCESSING);
         assertThat(row.attemptCount()).isEqualTo(1);
-        assertThat(row.request()).isEqualTo("{\"code\": \"DH1\"}");
+        assertThat(row.context()).isEqualTo("{\"target\": \"CANCELED\"}");
         assertThat(store.findProcessing(OBJECT, List.of(UUID.randomUUID(), recordId))).map(IntegrationTaskRow::id).contains(first.id());
         assertThat(store.findProcessing("other", List.of(recordId))).isEmpty();
     }
@@ -169,44 +195,32 @@ class IntegrationTaskPostgresIT {
     }
 
     @Test
-    void resultOfAnOldAttemptCannotOverwriteTheTask() {
-        // Arrange: sent with A1, closed by the sweeper, sent again with A2
-        NewIntegrationTask task = newTask(UUID.randomUUID(), Instant.now().minusSeconds(1));
+    void resultOfAnotherAttemptOrAfterTheSweepIsDropped() {
+        // Arrange
+        NewIntegrationTask task = newTask(UUID.randomUUID(), Instant.now().plusSeconds(360));
         store.insert(task);
-        assertThat(store.expireNext(List.of(), "late")).isPresent();
-        UUID secondAttempt = UUID.randomUUID();
-        assertThat(store.restart(task.id(), secondAttempt, Instant.now(), Instant.now().plusSeconds(360), OBJECT, task.recordId())).isEqualTo(1);
+        NewIntegrationTask late = newTask(UUID.randomUUID(), Instant.now().minusSeconds(1));
+        store.insert(late);
+        assertThat(store.expireNext(List.of(), "late")).map(IntegrationTaskRow::id).contains(late.id());
         ClassifiedOutcome succeeded = ClassifiedOutcome.succeeded(IntegrationOutcome.ACCEPTED, Map.of("HeaderId", 1));
 
         // Act
-        int stale = store.finish(task.id(), task.attemptId(), succeeded);
-        int current = store.finish(task.id(), secondAttempt, succeeded);
-        int twice = store.finish(task.id(), secondAttempt, succeeded);
+        int otherAttempt = store.finish(task.id(), UUID.randomUUID(), succeeded);
+        int current = store.finish(task.id(), task.attemptId(), succeeded);
+        int twice = store.finish(task.id(), task.attemptId(), succeeded);
+        int afterSweep = store.finish(late.id(), late.attemptId(), succeeded);
 
         // Assert
-        assertThat(stale).isZero();
+        assertThat(otherAttempt).isZero();
         assertThat(current).isEqualTo(1);
         assertThat(twice).isZero();
+        assertThat(afterSweep).isZero();
         IntegrationTaskRow row = store.findById(task.id()).orElseThrow();
         assertThat(row.status()).isEqualTo(IntegrationTaskStatus.SUCCEEDED);
-        assertThat(row.attemptCount()).isEqualTo(2);
-        assertThat(row.response()).isEqualTo("{\"HeaderId\": 1}");
-        assertThat(row.version()).isEqualTo(3);
-    }
-
-    @Test
-    void retryWhileANewTaskRunsIsInProgress() {
-        // Arrange
-        UUID recordId = UUID.randomUUID();
-        NewIntegrationTask old = newTask(recordId, Instant.now().minusSeconds(1));
-        store.insert(old);
-        store.expireNext(List.of(), "late");
-        store.insert(newTask(recordId, Instant.now().plusSeconds(360)));
-
-        // Act / Assert
-        assertThatThrownBy(() -> tx.executeWithoutResult(status -> store.restart(old.id(), UUID.randomUUID(), Instant.now(),
-                Instant.now().plusSeconds(360), OBJECT, recordId)))
-                .isInstanceOf(IntegrationTaskInProgressException.class);
+        assertThat(row.outcome()).isEqualTo(IntegrationOutcome.ACCEPTED.name());
+        assertThat(row.completedAt()).isNotNull();
+        assertThat(row.version()).isEqualTo(1);
+        assertThat(store.findById(late.id()).orElseThrow().status()).isEqualTo(IntegrationTaskStatus.UNCONFIRMED);
     }
 
     @Test
@@ -216,10 +230,10 @@ class IntegrationTaskPostgresIT {
         store.insert(task);
 
         // Act
-        int whileProcessing = store.resolve(task.id(), IntegrationTaskStatus.FAILED, null, "x", "admin");
+        int whileProcessing = store.resolve(task.id(), IntegrationTaskStatus.FAILED, "x", "admin");
         store.expireNext(List.of(), "late");
-        int resolved = store.resolve(task.id(), IntegrationTaskStatus.SUCCEEDED, Map.of("HeaderId", 9), "checked", "admin");
-        int again = store.resolve(task.id(), IntegrationTaskStatus.FAILED, null, "x", "admin");
+        int resolved = store.resolve(task.id(), IntegrationTaskStatus.SUCCEEDED, "checked", "admin");
+        int again = store.resolve(task.id(), IntegrationTaskStatus.FAILED, "x", "admin");
 
         // Assert
         assertThat(whileProcessing).isZero();
@@ -278,6 +292,63 @@ class IntegrationTaskPostgresIT {
         assertThat(calls.values()).allSatisfy(count -> assertThat(count.get()).isEqualTo(1));
         assertThat(store.findById(running.id()).orElseThrow().status()).isEqualTo(IntegrationTaskStatus.PROCESSING);
         assertThat(expired).allSatisfy(id -> assertThat(store.findById(id).orElseThrow().status()).isEqualTo(IntegrationTaskStatus.UNCONFIRMED));
+    }
+
+    @Test
+    void logsOfATaskAreItsCallsWithinItsWindowOldestFirst() {
+        // Arrange: task 10:00:00 - 10:01:10 on 2026-05-10, window 09:59:55 - 10:02:10 (5s before, 1 min after)
+        UUID taskId = UUID.randomUUID();
+        Instant startedAt = Instant.parse("2026-05-10T10:00:00Z");
+        Instant completedAt = Instant.parse("2026-05-10T10:01:10Z");
+        IntegrationTaskRow task = taskRow(taskId, startedAt, completedAt);
+        insertLog(taskId.toString(), "2026-05-10T10:00:40Z", 200, "{\"code\":\"DH1\"}", "{\"HeaderId\":1}");
+        insertLog(taskId.toString(), "2026-05-10T10:00:01Z", 504, "{\"code\":\"DH1\"}", null);
+        insertLog(taskId.toString(), "2026-05-10T10:01:14Z", 200, "{\"code\":\"DH1\"}", "{\"HeaderId\":2}");
+        insertLog(taskId.toString(), "2026-05-10T09:59:54Z", 200, "before the window", null);
+        insertLog(taskId.toString(), "2026-05-10T10:02:11Z", 200, "after the window", null);
+        insertLog(taskId.toString(), "2026-02-01T10:00:00Z", 200, "other partition", null);
+        insertLog(UUID.randomUUID().toString(), "2026-05-10T10:00:30Z", 200, "other task", null);
+        IntegrationTaskLogReader reader = new IntegrationTaskLogReader(dsl);
+
+        // Act
+        List<IntegrationTaskLog> logs = reader.findLogs(task);
+
+        // Assert
+        assertThat(logs).extracting(IntegrationTaskLog::createdAt).containsExactly(Instant.parse("2026-05-10T10:00:01Z"),
+                Instant.parse("2026-05-10T10:00:40Z"), Instant.parse("2026-05-10T10:01:14Z"));
+        assertThat(logs).extracting(IntegrationTaskLog::statusCode).containsExactly(504, 200, 200);
+        assertThat(logs.get(1).requestBody()).isEqualTo("{\"code\":\"DH1\"}");
+        assertThat(logs.get(1).responseBody()).isEqualTo("{\"HeaderId\":1}");
+        assertThat(logs.get(1).timeoutMs()).isEqualTo(300_000L);
+    }
+
+    @Test
+    void logQueryScansOnlyThePartitionOfTheTaskWindow() {
+        // Arrange
+        IntegrationTaskRow task = taskRow(UUID.randomUUID(), Instant.parse("2026-05-10T10:00:00Z"),
+                Instant.parse("2026-05-10T10:01:10Z"));
+        IntegrationTaskLogReader reader = new IntegrationTaskLogReader(dsl);
+
+        // Act
+        String plan = dsl.fetch("explain (costs off) " + dsl.renderInlined(reader.logsQuery(task))).format();
+
+        // Assert
+        assertThat(plan).contains("integration_log_2026q2")
+                .doesNotContain("integration_log_2026q1")
+                .doesNotContain("integration_log_2026q3");
+    }
+
+    private IntegrationTaskRow taskRow(UUID id, Instant startedAt, Instant completedAt) {
+        return new IntegrationTaskRow(id, RecordingHandler.CONNECTOR, OBJECT, UUID.randomUUID(), RecordingHandler.CONNECTOR,
+                IntegrationTaskStatus.SUCCEEDED, IntegrationOutcome.ACCEPTED.name(), UUID.randomUUID(), 1, null, null, null,
+                null, null, startedAt, startedAt.plusSeconds(360), completedAt, "user", startedAt, completedAt, 1);
+    }
+
+    private void insertLog(String correlationId, String createdAt, int statusCode, String requestBody, String responseBody) {
+        dsl.execute("insert into integration_log (created_at, completed_at, correlation_id, status_code, status, timeout_ms, "
+                        + "request_body, response_body) values (cast(? as timestamptz), cast(? as timestamptz) + interval '1 second', "
+                        + "?, ?, 'SUCCESS', 300000, ?, ?)",
+                createdAt, createdAt, correlationId, statusCode, requestBody, responseBody);
     }
 
     private static void sleepBriefly() {

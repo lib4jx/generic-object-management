@@ -100,6 +100,7 @@ import com.msm.core.objects.integration.async.IntegrationTaskActionService;
 import com.msm.core.objects.integration.async.IntegrationTaskGuard;
 import com.msm.core.objects.integration.async.IntegrationTaskGuardedActionExecutor;
 import com.msm.core.objects.integration.async.IntegrationTaskHandler;
+import com.msm.core.objects.integration.async.IntegrationTaskLogReader;
 import com.msm.core.objects.integration.async.IntegrationTaskStore;
 import com.msm.core.objects.integration.async.OnAsyncIntegrationCondition;
 import com.msm.core.objects.integration.auth.apikey.ApiKeyAuthProvider;
@@ -857,6 +858,13 @@ public class MsmAutoConfiguration {
         return new IntegrationTaskStore(dslContext);
     }
 
+    /** Calls of a task in {@code integration_log}, for viewing (the task table no longer keeps request / response). */
+    @Bean
+    @ConditionalOnMissingBean
+    public IntegrationTaskLogReader integrationTaskLogReader(DSLContext dslContext) {
+        return new IntegrationTaskLogReader(dslContext);
+    }
+
     /** Does nothing (no query) while no connector has {@code async.enabled}. */
     @Bean
     @ConditionalOnMissingBean
@@ -943,12 +951,10 @@ public class MsmAutoConfiguration {
     public IntegrationTaskActionService integrationTaskActionService(
             IntegrationTaskStore integrationTaskStore,
             AsyncIntegrationHandlerRegistry asyncIntegrationHandlerRegistry,
-            AsyncIntegrationWorker asyncIntegrationWorker,
             IntegrationCallRunner integrationCallRunner,
-            IntegrationProperties integrationProperties,
             ManualChangeLog manualChangeLog) {
         return new IntegrationTaskActionService(integrationTaskStore, asyncIntegrationHandlerRegistry,
-                asyncIntegrationWorker, integrationCallRunner, integrationProperties, manualChangeLog);
+                integrationCallRunner, manualChangeLog);
     }
 
     @Bean

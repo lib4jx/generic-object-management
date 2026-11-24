@@ -38,7 +38,7 @@ class IntegrationTaskGuardTest {
 
     private IntegrationTaskRow processing(UUID recordId) {
         return new IntegrationTaskRow(UUID.randomUUID(), "erp", OBJECT, recordId, "erp", IntegrationTaskStatus.PROCESSING,
-                null, UUID.randomUUID(), 1, null, null, null, null, null, null, null, null, null, null, null, null, null, 0);
+                null, UUID.randomUUID(), 1, null, null, null, null, null, null, null, null, null, null, null, 0);
     }
 
     @Test

@@ -17,10 +17,6 @@ public class ConnectorProperties {
         return async != null && async.isEnabled();
     }
 
-    public boolean idempotent() {
-        return async != null && async.isIdempotent();
-    }
-
     /** {@code timeout.read-ms}, or null without a read timeout. */
     public Long readTimeoutMs() {
         return timeout == null ? null : timeout.getReadMs();

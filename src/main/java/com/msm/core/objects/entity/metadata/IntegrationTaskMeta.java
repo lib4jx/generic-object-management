@@ -16,8 +16,7 @@ public final class IntegrationTaskMeta {
 
     public static final String OBJECT_NAME = "integrationtask";
 
-    // Actions of the object (PUT /integrationtask/{id}/{action})
-    public static final String ACTION_RETRY = "retry";
+    // Action of the object (PUT /integrationtask/{id}/{action})
     public static final String ACTION_RESOLVE = "resolve";
 
     public static final Table<?> TABLE =
@@ -50,14 +49,8 @@ public final class IntegrationTaskMeta {
     public static final TypedAttribute<Integer> ATTEMPT_COUNT =
             attr(TABLE, "attemptCount", "attempt_count", Integer.class);
 
-    public static final TypedAttribute<JSONB> REQUEST =
-            attr(TABLE, "request", "request", JSONB.class);
-
     public static final TypedAttribute<JSONB> CONTEXT =
             attr(TABLE, "context", "context", JSONB.class);
-
-    public static final TypedAttribute<JSONB> RESPONSE =
-            attr(TABLE, "response", "response", JSONB.class);
 
     public static final TypedAttribute<String> ERROR_CODE =
             attr(TABLE, "errorCode", "error_code", String.class);

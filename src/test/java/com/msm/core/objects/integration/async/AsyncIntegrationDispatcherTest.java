@@ -190,7 +190,6 @@ class AsyncIntegrationDispatcherTest {
         assertThat(task.recordId()).isEqualTo(orderId);
         assertThat(task.connector()).isEqualTo(RecordingHandler.CONNECTOR);
         assertThat(task.action()).isEqualTo(RecordingHandler.CONNECTOR);
-        assertThat(task.request()).isEqualTo("{\"code\":\"DH1\"}");
         assertThat(task.context()).isEqualTo("{\"target\":\"CANCELED\"}");
         assertThat(task.deadlineAt()).isCloseTo(Instant.now().plus(Duration.ofMillis(DEADLINE_MS)), within(5, ChronoUnit.SECONDS));
         assertThat(view.status()).isEqualTo(IntegrationTaskStatus.PROCESSING);

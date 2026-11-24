@@ -12,9 +12,7 @@ public enum ObjectErrorCode implements ErrorCode {
     PAYLOAD_INVALID("PAYLOAD_INVALID"),
     /** The record has an integration task PROCESSING: no write until it ends (HTTP 409). */
     INTEGRATION_TASK_IN_PROGRESS("integration.task.in_progress"),
-    /** UNCONFIRMED task of a connector that is not idempotent: not sent again, to be resolved by hand. */
-    INTEGRATION_TASK_UNCONFIRMED("integration.task.unconfirmed"),
-    /** The task is not in the status the action needs (retry / resolve need UNCONFIRMED). */
+    /** The task is not in the status the action needs ({@code resolve} needs UNCONFIRMED). */
     INTEGRATION_TASK_INVALID_STATUS("integration.task.invalid_status"),
     /** The action waited {@code async.inline-wait-ms} without a result; the task goes on in the background (HTTP 409). */
     INTEGRATION_TASK_PROCESSING("integration.task.processing");

@@ -41,26 +41,24 @@ public class IntegrationProperties implements InitializingBean {
             requirePositive(name, "timeout.read-ms", timeout.getReadMs());
         }
         AsyncProperties async = connector.getAsync();
-        if (async == null || !(async.isEnabled() || async.isIdempotent())) {
+        if (async == null || !async.isEnabled()) {
             return;
         }
         Long deadlineMs = async.getDeadlineMs();
         if (deadlineMs == null || deadlineMs <= 0) {
             throw new IllegalStateException(CONNECTOR_PREFIX + name
-                    + ".async.deadline-ms is required (> 0) when async.enabled or async.idempotent is true");
+                    + ".async.deadline-ms is required (> 0) when async.enabled is true");
         }
         Long readMs = connector.readTimeoutMs();
-        if (async.isEnabled() && readMs == null) {
+        if (readMs == null) {
             throw new IllegalStateException(CONNECTOR_PREFIX + name
                     + ".timeout.read-ms is required when async.enabled is true: without it a call may never end");
         }
-        if (readMs != null && deadlineMs <= readMs) {
+        if (deadlineMs <= readMs) {
             throw new IllegalStateException(CONNECTOR_PREFIX + name + ".async.deadline-ms (" + deadlineMs
                     + ") must be greater than timeout.read-ms (" + readMs + ")");
         }
-        if (async.isEnabled()) {
-            validateInlineWait(name, async.getInlineWaitMs(), deadlineMs);
-        }
+        validateInlineWait(name, async.getInlineWaitMs(), deadlineMs);
     }
 
     private void validateInlineWait(String name, long inlineWaitMs, long deadlineMs) {

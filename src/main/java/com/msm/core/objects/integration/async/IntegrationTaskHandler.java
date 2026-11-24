@@ -14,9 +14,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Routes of the object {@code integrationtask}: read like any generic object; {@code PUT /integrationtask/{id}/retry}
- * and {@code /resolve} need the permission UPDATE on {@code integrationtask}; create / update / delete are refused
- * (only the library writes tasks).
+ * Routes of the object {@code integrationtask}: read like any generic object; {@code PUT /integrationtask/{id}/resolve}
+ * needs the permission UPDATE on {@code integrationtask}; create / update / delete are refused (only the library writes
+ * tasks).
  */
 @RequiredArgsConstructor
 public class IntegrationTaskHandler {
@@ -24,12 +24,6 @@ public class IntegrationTaskHandler {
     private static final String READ_ONLY_MESSAGE = "integrationtask is written by the library only";
 
     private final IntegrationTaskActionService actionService;
-
-    @Handler(resource = IntegrationTaskMeta.OBJECT_NAME, action = IntegrationTaskMeta.ACTION_RETRY)
-    @SecuredPermissionAction(anyOf = PermissionAction.UPDATE)
-    public Map<String, Object> retry(ActionContext<Map<String, Object>> actionContext) {
-        return actionService.retry(taskId(actionContext));
-    }
 
     @Handler(resource = IntegrationTaskMeta.OBJECT_NAME, action = IntegrationTaskMeta.ACTION_RESOLVE)
     @SecuredPermissionAction(anyOf = PermissionAction.UPDATE)

@@ -4,28 +4,22 @@ import com.msm.core.commons.Utils;
 import com.msm.core.exceptions.CommonErrors;
 import com.msm.core.metadata.typesafe.DataRecord;
 import com.msm.core.objects.audit.changelog.ManualChangeLog;
-import com.msm.core.objects.config.IntegrationProperties;
 import com.msm.core.objects.entity.metadata.IntegrationTaskMeta;
 import com.msm.core.objects.exception.ObjectErrors;
-import com.msm.core.objects.integration.data.ConnectorProperties;
 import com.msm.core.security.RequestContextHolder;
 import lombok.RequiredArgsConstructor;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Actions on an UNCONFIRMED task (design §6), in the transaction of the action route:
- * <ul>
- *   <li>{@code retry}: sends the stored request again as is, same task, new attempt; only for a connector with
- *   {@code async.idempotent}, else {@code integration.task.unconfirmed};</li>
- *   <li>{@code resolve}: closes the task by hand, {@code status} SUCCEEDED (with {@code data}, the answer the handler
- *   expects) or FAILED, {@code reason} required; the handler's callback runs as for a call result.</li>
- * </ul>
+ * Action {@code resolve} on an UNCONFIRMED task (design §6, §18), in the transaction of the action route: closes the
+ * task by hand, {@code status} SUCCEEDED (with {@code data}, the answer the handler expects, given to
+ * {@code onSucceeded} as the response and not stored) or FAILED, {@code reason} required; the handler's callback runs
+ * as for a call result, with the task's {@code context} (no payload). There is no resend: after UNCONFIRMED / FAILED
+ * the user runs the original action again (new task).
  */
 @RequiredArgsConstructor
 public class IntegrationTaskActionService {
@@ -38,35 +32,10 @@ public class IntegrationTaskActionService {
 
     private final IntegrationTaskStore store;
     private final AsyncIntegrationHandlerRegistry registry;
-    private final AsyncIntegrationWorker worker;
     private final IntegrationCallRunner runner;
-    private final IntegrationProperties properties;
     private final ManualChangeLog manualChangeLog;
     private final AfterCommit afterCommit = new AfterCommit();
     private final TaskContextFactory taskContexts = new TaskContextFactory();
-
-    public Map<String, Object> retry(UUID taskId) {
-        IntegrationTaskRow row = unconfirmedTask(taskId);
-        ConnectorProperties connector = properties.getConnectors().get(row.connector());
-        if (connector == null || !connector.idempotent()) {
-            throw ObjectErrors.integrationTaskUnconfirmed(taskId);
-        }
-        AsyncIntegrationHandler<?, ?> handler = handlerOf(row);
-        UUID attemptId = UUID.randomUUID();
-        Instant startedAt = Instant.now();
-        Instant deadlineAt = startedAt.plus(Duration.ofMillis(connector.getAsync().getDeadlineMs()));
-        if (store.restart(taskId, attemptId, startedAt, deadlineAt, row.objectName(), row.recordId()) == 0) {
-            throw ObjectErrors.integrationTaskInvalidStatus(taskId, currentStatus(taskId));
-        }
-        logChange(row, IntegrationTaskStatus.PROCESSING, Map.of(IntegrationTaskMeta.ATTEMPT_COUNT.getFieldName(), row.attemptCount() + 1));
-        IntegrationTaskRow restarted = new IntegrationTaskRow(row.id(), row.connector(), row.objectName(), row.recordId(),
-                row.action(), IntegrationTaskStatus.PROCESSING, null, attemptId, row.attemptCount() + 1, row.request(),
-                row.context(), null, null, null, null, null, startedAt, deadlineAt, null, row.createdBy(), row.createdAt(),
-                startedAt, row.version() + 1);
-        AsyncTaskRun<?> run = taskContexts.runOf(handler, restarted);
-        afterCommit.run(() -> worker.submit(run));
-        return new IntegrationTaskView(taskId, IntegrationTaskStatus.PROCESSING, deadlineAt).toMap();
-    }
 
     public Map<String, Object> resolve(UUID taskId, Map<String, Object> payload) {
         DataRecord request = DataRecord.ofNullable(payload);
@@ -79,14 +48,14 @@ public class IntegrationTaskActionService {
         IntegrationTaskRow row = unconfirmedTask(taskId);
         AsyncIntegrationHandler<?, ?> handler = handlerOf(row);
         String username = RequestContextHolder.getRequestContext().getUsername();
-        if (store.resolve(taskId, target, data, reason, username) == 0) {
+        if (store.resolve(taskId, target, reason, username) == 0) {
             throw ObjectErrors.integrationTaskInvalidStatus(taskId, currentStatus(taskId));
         }
         Map<String, Object> resolution = new LinkedHashMap<>();
         resolution.put(IntegrationTaskMeta.RESOLVED_BY.getFieldName(), username);
         resolution.put(IntegrationTaskMeta.RESOLVE_REASON.getFieldName(), reason);
         logChange(row, target, resolution);
-        IntegrationTaskContext task = taskContexts.runOf(handler, row).task();
+        IntegrationTaskContext task = taskContexts.contextOf(row);
         if (target == IntegrationTaskStatus.SUCCEEDED) {
             runner.deliver(handler, task, ClassifiedOutcome.succeeded(IntegrationOutcome.RESOLVED, data));
             afterCommit.run(() -> runner.afterSucceededCommit(handler, task));

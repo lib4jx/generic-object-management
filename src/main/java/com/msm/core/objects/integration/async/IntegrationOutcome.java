@@ -26,7 +26,7 @@ public enum IntegrationOutcome {
     RESOLVED,
     /**
      * Inline wait: the partner succeeded but the action's transaction rolled back, so the record does not show it; the
-     * task is UNCONFIRMED with the partner's answer kept in {@code response}.
+     * task is UNCONFIRMED; the partner's answer is in {@code integration_log}.
      */
     ACTION_ROLLED_BACK
 }

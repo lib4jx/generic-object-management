@@ -12,7 +12,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -45,7 +44,7 @@ class AsyncIntegrationSweeperTest {
         Instant now = Instant.now();
         return new IntegrationTaskRow(UUID.randomUUID(), connector, "v2order", UUID.randomUUID(), action,
                 IntegrationTaskStatus.UNCONFIRMED, IntegrationOutcome.DEADLINE_EXCEEDED.name(), UUID.randomUUID(), 1,
-                "{\"code\":\"DH1\"}", "{\"target\":\"CANCELED\"}", null, IntegrationOutcome.DEADLINE_EXCEEDED.name(), "late",
+                "{\"target\":\"CANCELED\"}", IntegrationOutcome.DEADLINE_EXCEEDED.name(), "late",
                 null, null, now.minusSeconds(400), now.minusSeconds(40), now, "user", now.minusSeconds(400), now, 1);
     }
 
@@ -74,7 +73,8 @@ class AsyncIntegrationSweeperTest {
         assertThat(exclusions).containsExactly(Set.of(), Set.of(failing.id()), Set.of(failing.id()));
         assertThat(handler.events).containsExactly("onUnconfirmed", "onUnconfirmed");
         assertThat(handler.lastError.code()).isEqualTo(IntegrationOutcome.DEADLINE_EXCEEDED.name());
-        assertThat(handler.tasks.get(1).getPayloadAs(Map.class)).containsEntry("code", "DH1");
+        // the payload is not stored: a task rebuilt from the table has only its context
+        assertThat(handler.tasks.get(1).getPayload()).isNull();
         assertThat(handler.tasks.get(1).getContextValue("target", String.class)).isEqualTo("CANCELED");
         ArgumentCaptor<TransactionStatus> committed = ArgumentCaptor.forClass(TransactionStatus.class);
         verify(transactionManager, times(3)).commit(committed.capture());

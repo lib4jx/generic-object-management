@@ -27,6 +27,8 @@ import java.util.UUID;
  * Table {@code integration_task} of the service (created by the service's own migration, see the README), read and
  * written with jOOQ in the transaction of the calling thread, if any. Every status change out of PROCESSING /
  * UNCONFIRMED is fenced on the status (and on {@code attempt_id} for a call result), so two writers never both win.
+ * The payload sent and the partner's answer are not stored here: they are in {@code integration_log}
+ * ({@link IntegrationTaskLogReader}).
  */
 @RequiredArgsConstructor
 public class IntegrationTaskStore {
@@ -47,9 +49,7 @@ public class IntegrationTaskStore {
     private static final Field<String> OUTCOME = DSL.field(DSL.name("outcome"), SQLDataType.VARCHAR);
     private static final Field<UUID> ATTEMPT_ID = DSL.field(DSL.name("attempt_id"), SQLDataType.UUID);
     private static final Field<Integer> ATTEMPT_COUNT = DSL.field(DSL.name("attempt_count"), SQLDataType.INTEGER);
-    private static final Field<JSONB> REQUEST = DSL.field(DSL.name("request"), SQLDataType.JSONB);
     private static final Field<JSONB> CONTEXT = DSL.field(DSL.name("context"), SQLDataType.JSONB);
-    private static final Field<JSONB> RESPONSE = DSL.field(DSL.name("response"), SQLDataType.JSONB);
     private static final Field<String> ERROR_CODE = DSL.field(DSL.name("error_code"), SQLDataType.VARCHAR);
     private static final Field<String> ERROR_MESSAGE = DSL.field(DSL.name("error_message"), SQLDataType.VARCHAR);
     private static final Field<String> RESOLVED_BY = DSL.field(DSL.name("resolved_by"), SQLDataType.VARCHAR);
@@ -63,11 +63,10 @@ public class IntegrationTaskStore {
     private static final Field<Long> VERSION = DSL.field(DSL.name("version"), SQLDataType.BIGINT);
 
     private static final List<Field<?>> ALL_FIELDS = List.of(ID, CONNECTOR, OBJECT_NAME, RECORD_ID, ACTION, STATUS, OUTCOME,
-            ATTEMPT_ID, ATTEMPT_COUNT, REQUEST, CONTEXT, RESPONSE, ERROR_CODE, ERROR_MESSAGE, RESOLVED_BY, RESOLVE_REASON,
+            ATTEMPT_ID, ATTEMPT_COUNT, CONTEXT, ERROR_CODE, ERROR_MESSAGE, RESOLVED_BY, RESOLVE_REASON,
             STARTED_AT, DEADLINE_AT, COMPLETED_AT, CREATED_BY, CREATED_AT, UPDATED_AT, VERSION);
 
     private final DSLContext dsl;
-    private final IntegrationTaskJson json = new IntegrationTaskJson();
 
     /**
      * Inserts the task PROCESSING. The record already has a task PROCESSING (unique index
@@ -76,11 +75,11 @@ public class IntegrationTaskStore {
     public void insert(NewIntegrationTask task) {
         try {
             dsl.insertInto(TABLE)
-                    .columns(ID, CONNECTOR, OBJECT_NAME, RECORD_ID, ACTION, STATUS, ATTEMPT_ID, ATTEMPT_COUNT, REQUEST,
-                            CONTEXT, STARTED_AT, DEADLINE_AT, CREATED_BY, CREATED_AT, VERSION)
+                    .columns(ID, CONNECTOR, OBJECT_NAME, RECORD_ID, ACTION, STATUS, ATTEMPT_ID, ATTEMPT_COUNT, CONTEXT,
+                            STARTED_AT, DEADLINE_AT, CREATED_BY, CREATED_AT, VERSION)
                     .values(task.id(), task.connector(), task.objectName(), task.recordId(), task.action(),
-                            IntegrationTaskStatus.PROCESSING.name(), task.attemptId(), 1, jsonb(task.request()),
-                            jsonb(task.context()), time(task.startedAt()), time(task.deadlineAt()),
+                            IntegrationTaskStatus.PROCESSING.name(), task.attemptId(), 1, jsonb(task.context()),
+                            time(task.startedAt()), time(task.deadlineAt()),
                             cut(task.createdBy(), USER_LENGTH), time(task.startedAt()), 0L)
                     .execute();
         } catch (org.jooq.exception.DataAccessException | org.springframework.dao.DataAccessException e) {
@@ -107,8 +106,9 @@ public class IntegrationTaskStore {
     }
 
     /**
-     * Writes the result of the sending {@code attemptId}. 0 rows: the task is no longer PROCESSING under this attempt
-     * (the sweeper closed it, or it was sent again), and the result must be dropped.
+     * Writes the result of the sending {@code attemptId}: status, outcome and error (the partner's answer stays in
+     * {@code integration_log}). 0 rows: the task is no longer PROCESSING under this attempt (the sweeper closed it),
+     * and the result must be dropped.
      */
     public int finish(UUID id, UUID attemptId, ClassifiedOutcome outcome) {
         IntegrationError error = outcome.error();
@@ -116,7 +116,6 @@ public class IntegrationTaskStore {
         return dsl.update(TABLE)
                 .set(STATUS, outcome.status().name())
                 .set(OUTCOME, outcome.outcome().name())
-                .set(RESPONSE, jsonb(json.write(outcome.response())))
                 .set(ERROR_CODE, error == null ? null : cut(error.code(), CODE_LENGTH))
                 .set(ERROR_MESSAGE, error == null ? null : cut(error.message(), MESSAGE_LENGTH))
                 .set(COMPLETED_AT, time(now))
@@ -159,38 +158,16 @@ public class IntegrationTaskStore {
                 .map(this::toRow);
     }
 
-    /** UNCONFIRMED back to PROCESSING for a new sending (action {@code retry}). 0 rows: no longer UNCONFIRMED. */
-    public int restart(UUID id, UUID attemptId, Instant startedAt, Instant deadlineAt, String objectName, UUID recordId) {
-        try {
-            return dsl.update(TABLE)
-                    .set(STATUS, IntegrationTaskStatus.PROCESSING.name())
-                    .set(ATTEMPT_ID, attemptId)
-                    .set(ATTEMPT_COUNT, ATTEMPT_COUNT.plus(1))
-                    .set(STARTED_AT, time(startedAt))
-                    .set(DEADLINE_AT, time(deadlineAt))
-                    .setNull(OUTCOME)
-                    .setNull(RESPONSE)
-                    .setNull(ERROR_CODE)
-                    .setNull(ERROR_MESSAGE)
-                    .setNull(COMPLETED_AT)
-                    .set(UPDATED_AT, time(startedAt))
-                    .set(VERSION, VERSION.plus(1))
-                    .where(ID.eq(id))
-                    .and(STATUS.eq(IntegrationTaskStatus.UNCONFIRMED.name()))
-                    .execute();
-        } catch (org.jooq.exception.DataAccessException | org.springframework.dao.DataAccessException e) {
-            throw inProgressOrRethrow(e, objectName, recordId);
-        }
-    }
-
-    /** UNCONFIRMED closed by hand (action {@code resolve}). 0 rows: no longer UNCONFIRMED. */
-    public int resolve(UUID id, IntegrationTaskStatus status, Object data, String reason, String resolvedBy) {
+    /**
+     * UNCONFIRMED closed by hand (action {@code resolve}); the data given to the handler is not stored. 0 rows: no
+     * longer UNCONFIRMED.
+     */
+    public int resolve(UUID id, IntegrationTaskStatus status, String reason, String resolvedBy) {
         Instant now = Instant.now();
         boolean failed = status == IntegrationTaskStatus.FAILED;
         return dsl.update(TABLE)
                 .set(STATUS, status.name())
                 .set(OUTCOME, IntegrationOutcome.RESOLVED.name())
-                .set(RESPONSE, jsonb(json.write(data)))
                 .set(ERROR_CODE, failed ? IntegrationOutcome.RESOLVED.name() : null)
                 .set(ERROR_MESSAGE, failed ? cut(reason, MESSAGE_LENGTH) : null)
                 .set(RESOLVED_BY, cut(resolvedBy, USER_LENGTH))
@@ -230,9 +207,7 @@ public class IntegrationTaskStore {
                 record.get(OUTCOME),
                 record.get(ATTEMPT_ID),
                 record.get(ATTEMPT_COUNT),
-                text(record.get(REQUEST)),
                 text(record.get(CONTEXT)),
-                text(record.get(RESPONSE)),
                 record.get(ERROR_CODE),
                 record.get(ERROR_MESSAGE),
                 record.get(RESOLVED_BY),

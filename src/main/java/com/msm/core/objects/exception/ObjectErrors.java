@@ -40,11 +40,6 @@ public class ObjectErrors {
         return new IntegrationTaskProcessingException(objectName, recordId, taskId, cause);
     }
 
-    public static IntegrationTaskStateException integrationTaskUnconfirmed(UUID taskId) {
-        return new IntegrationTaskStateException(ObjectErrorCode.INTEGRATION_TASK_UNCONFIRMED, taskId, null,
-                "The partner of the task is not idempotent: check it, then resolve the task");
-    }
-
     public static IntegrationTaskStateException integrationTaskInvalidStatus(UUID taskId, String status) {
         return new IntegrationTaskStateException(ObjectErrorCode.INTEGRATION_TASK_INVALID_STATUS, taskId, status,
                 "The task is " + status + ", the action needs UNCONFIRMED");

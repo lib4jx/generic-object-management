@@ -5,8 +5,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Result of {@link AsyncIntegrationHandler#prepare}: the payload sent to the partner (column {@code request}) and the
- * data of the action the result step needs (column {@code context}).
+ * Result of {@link AsyncIntegrationHandler#prepare}: the payload sent to the partner (kept in memory only, the
+ * request is logged in {@code integration_log}) and the data of the action the result step needs (column
+ * {@code context}, the only data a callback outside the request gets back).
  *
  * @param <P>      type of the payload
  * @param payload  sent to the partner

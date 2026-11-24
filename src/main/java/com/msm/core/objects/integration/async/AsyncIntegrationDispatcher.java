@@ -88,7 +88,7 @@ public class AsyncIntegrationDispatcher {
         UUID taskId = UUID.randomUUID();
         UUID attemptId = UUID.randomUUID();
         NewIntegrationTask row = new NewIntegrationTask(taskId, handler.connector().getName(), actionContext.getResource(),
-                recordId, handler.action(), attemptId, json.write(prepared.payload()), json.write(prepared.context()),
+                recordId, handler.action(), attemptId, json.write(prepared.context()),
                 startedAt, deadlineAt, RequestContextHolder.getRequestContext().getUsername());
         IntegrationTaskContext task = IntegrationTaskContext.builder()
                 .taskId(taskId)

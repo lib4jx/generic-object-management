@@ -120,10 +120,4 @@ class RecordingHandler implements AsyncIntegrationHandler<Map<String, Object>, M
         events.add("afterSucceededCommit");
         callbackThreads.add(Thread.currentThread());
     }
-
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    @Override
-    public Class<Map<String, Object>> payloadType() {
-        return (Class) Map.class;
-    }
 }

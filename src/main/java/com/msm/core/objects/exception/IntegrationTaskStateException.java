@@ -7,7 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/** Action {@code retry} / {@code resolve} not allowed on the task in its current state (HTTP 400). */
+/** Action {@code resolve} not allowed on the task in its current state (HTTP 400). */
 public class IntegrationTaskStateException extends GenericBaseException {
     public static final String TASK_ID_PARAM = "taskId";
     public static final String STATUS_PARAM = "status";

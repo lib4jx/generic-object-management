@@ -10,7 +10,7 @@ import java.util.function.Supplier;
 
 /**
  * The {@link AsyncIntegrationHandler} beans by connector name + {@link AsyncIntegrationHandler#action()}, the pair
- * stored on a task, for the sweeper and the actions {@code retry} / {@code resolve}. Built once every singleton exists
+ * stored on a task, for the sweeper and the action {@code resolve}. Built once every singleton exists
  * (no dependency cycle with the services' handlers); two handlers with the same pair fail the startup.
  */
 public class AsyncIntegrationHandlerRegistry implements SmartInitializingSingleton {

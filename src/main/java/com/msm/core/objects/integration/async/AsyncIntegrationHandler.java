@@ -12,11 +12,15 @@ import java.util.Optional;
  * transaction, then the result callbacks in a new transaction (async) or in the action's transaction (sync, or async
  * with a result within {@code inline-wait-ms}: see {@code IntegrationTaskContext.isAsync()}).
  *
- * <p>Declare implementations as Spring beans: the sweeper and the actions {@code retry} / {@code resolve} find them
- * by {@code connector().getName()} + {@link #action()}, the pair stored on the task.
+ * <p>Declare implementations as Spring beans: the sweeper and the action {@code resolve} find them by
+ * {@code connector().getName()} + {@link #action()}, the pair stored on the task.
+ *
+ * <p>Only {@link PreparedCall#context()} is stored on the task; the payload is not. The worker keeps the payload in
+ * memory for the call and its callbacks; the sweeper and {@code resolve} rebuild the task from the table: the
+ * callback gets the context and no payload, and reads the record again if it needs more.
  *
  * @param <I> data the action gives at the call place (e.g. the order record)
- * @param <P> payload sent to the partner, stored as JSON in {@code integration_task.request}
+ * @param <P> payload sent to the partner (logged in {@code integration_log}, not stored on the task)
  */
 public interface AsyncIntegrationHandler<I, P> {
 
@@ -72,7 +76,4 @@ public interface AsyncIntegrationHandler<I, P> {
      */
     default void afterSucceededCommit(IntegrationTaskContext task) {
     }
-
-    /** Type of the payload, to read {@code request} back when the task is sent again. */
-    Class<P> payloadType();
 }

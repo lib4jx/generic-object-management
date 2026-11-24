@@ -80,9 +80,9 @@ public class AsyncIntegrationSweeper implements SmartLifecycle {
             return true;
         }
         try {
-            AsyncTaskRun<?> run = taskContexts.runOf(handler.get(), row);
-            runner.deliver(handler.get(), run.task(), ClassifiedOutcome.unconfirmed(IntegrationOutcome.DEADLINE_EXCEEDED,
-                    IntegrationError.of(IntegrationOutcome.DEADLINE_EXCEEDED, DEADLINE_MESSAGE)));
+            runner.deliver(handler.get(), taskContexts.contextOf(row),
+                    ClassifiedOutcome.unconfirmed(IntegrationOutcome.DEADLINE_EXCEEDED,
+                            IntegrationError.of(IntegrationOutcome.DEADLINE_EXCEEDED, DEADLINE_MESSAGE)));
             return true;
         } catch (RuntimeException e) {
             // one task must not stop the round: logged, retried next round

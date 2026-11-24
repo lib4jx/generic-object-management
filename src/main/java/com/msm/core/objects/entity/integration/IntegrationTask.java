@@ -20,8 +20,9 @@ import java.util.UUID;
 
 /**
  * One call to a partner made by {@code AsyncIntegrationDispatcher} with {@code async.enabled}. Read through the
- * generic routes (object {@code integrationtask}); written only by the library (store, worker, sweeper, actions
- * {@code retry} / {@code resolve}). Table created by the service's own migration (README). No soft delete: a log.
+ * generic routes (object {@code integrationtask}); written only by the library (store, worker, sweeper, action
+ * {@code resolve}). Table created by the service's own migration (README). No soft delete: a log. What was sent to and
+ * answered by the partner is in {@code integration_log} ({@code correlation_id} = id of the task), not here.
  */
 @IgnorePermission
 @Getter
@@ -65,19 +66,10 @@ public class IntegrationTask {
     @Column(name = "attempt_count", nullable = false)
     private Integer attemptCount;
 
-    /** Payload sent to the partner, sent again as is by {@code retry}. */
-    @Column(name = "request")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> request;
-
     /** Data of the action the result step needs (target status of a cancel...). */
     @Column(name = "context")
     @JdbcTypeCode(SqlTypes.JSON)
     private Map<String, Object> context;
-
-    @Column(name = "response")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> response;
 
     @Column(name = "error_code")
     private String errorCode;

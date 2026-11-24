@@ -25,13 +25,16 @@ public class IntegrationTaskContext {
     private final String action;
     private final UUID attemptId;
     private final int attemptCount;
-    /** The payload sent, of type {@link AsyncIntegrationHandler#payloadType()}. */
+    /**
+     * The payload sent ({@link PreparedCall#payload()}). Null in a context rebuilt from the table (sweeper,
+     * {@code resolve}): the payload is not stored; what was sent is in {@code integration_log}.
+     */
     private final Object payload;
     private final Map<String, Object> context;
     /**
      * false: the callback runs in the action's transaction (sync, or a result within {@code async.inline-wait-ms}) and
-     * may throw to fail the action, as a direct call did. true: it runs in the worker, the sweeper or a task action
-     * ({@code retry} / {@code resolve}).
+     * may throw to fail the action, as a direct call did. true: it runs in the worker, the sweeper or the task action
+     * {@code resolve}.
      */
     private final boolean async;
 

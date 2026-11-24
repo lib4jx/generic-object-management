@@ -10,10 +10,8 @@ import lombok.Data;
 public class AsyncProperties {
     /** true: the partner is called on {@code integrationTaskExecutor}, under an {@code integration_task}. */
     private boolean enabled = false;
-    /** A task still PROCESSING after this delay is marked UNCONFIRMED by the sweeper. Required when enabled or idempotent. */
+    /** A task still PROCESSING after this delay is marked UNCONFIRMED by the sweeper. Required when enabled. */
     private Long deadlineMs;
-    /** Sending the same request again creates nothing twice at the partner: allows the action {@code retry}. */
-    private boolean idempotent = false;
     /**
      * With {@code enabled}: how long the action waits for the result before leaving it to the worker (since 2.7.4).
      * 0 (default): returns at once with the task PROCESSING, as 2.7.3. Greater than 0: a result within the wait is
