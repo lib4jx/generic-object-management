@@ -100,9 +100,9 @@ import com.msm.core.objects.integration.async.IntegrationTaskActionService;
 import com.msm.core.objects.integration.async.IntegrationTaskGuard;
 import com.msm.core.objects.integration.async.IntegrationTaskGuardedActionExecutor;
 import com.msm.core.objects.integration.async.IntegrationTaskHandler;
-import com.msm.core.objects.integration.async.IntegrationTaskLogReader;
 import com.msm.core.objects.integration.async.IntegrationTaskStore;
 import com.msm.core.objects.integration.async.OnAsyncIntegrationCondition;
+import com.msm.core.objects.integration.async.RequestStartFilter;
 import com.msm.core.objects.integration.auth.apikey.ApiKeyAuthProvider;
 import com.msm.core.objects.integration.auth.apikey.ApiKeyQueryProvider;
 import com.msm.core.objects.integration.auth.basic.BasicEncodedProvider;
@@ -179,11 +179,13 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
+import org.springframework.core.Ordered;
 import org.springframework.core.env.Environment;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -858,13 +860,6 @@ public class MsmAutoConfiguration {
         return new IntegrationTaskStore(dslContext);
     }
 
-    /** Calls of a task in {@code integration_log}, for viewing (the task table no longer keeps request / response). */
-    @Bean
-    @ConditionalOnMissingBean
-    public IntegrationTaskLogReader integrationTaskLogReader(DSLContext dslContext) {
-        return new IntegrationTaskLogReader(dslContext);
-    }
-
     /** Does nothing (no query) while no connector has {@code async.enabled}. */
     @Bean
     @ConditionalOnMissingBean
@@ -911,6 +906,15 @@ public class MsmAutoConfiguration {
             PlatformTransactionManager transactionManager) {
         return new AsyncIntegrationWorker(integrationTaskExecutor, integrationClient, integrationCallRunner,
                 integrationTaskStore, transactionManager);
+    }
+
+    /** First in the servlet filter chain: when the request arrived, for {@code async.request-budget-ms} (2.7.8). */
+    @Bean
+    @ConditionalOnMissingBean(name = "requestStartFilterRegistration")
+    public FilterRegistrationBean<RequestStartFilter> requestStartFilterRegistration() {
+        FilterRegistrationBean<RequestStartFilter> registration = new FilterRegistrationBean<>(new RequestStartFilter());
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
     }
 
     @Bean

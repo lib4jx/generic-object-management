@@ -21,4 +21,17 @@ public class ConnectorProperties {
     public Long readTimeoutMs() {
         return timeout == null ? null : timeout.getReadMs();
     }
+
+    /**
+     * Longest a call may take: {@code timeout.connect-ms} (0 when not set) + {@code timeout.read-ms}; null without a
+     * read timeout.
+     */
+    public Long callTimeoutMs() {
+        Long readMs = readTimeoutMs();
+        if (readMs == null) {
+            return null;
+        }
+        Long connectMs = timeout.getConnectMs();
+        return connectMs == null ? readMs : connectMs + readMs;
+    }
 }

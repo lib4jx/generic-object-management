@@ -20,6 +20,11 @@ public enum IntegrationOutcome {
     UNKNOWN_ERROR,
     /** {@code integrationTaskExecutor} full: not sent. */
     EXECUTOR_FULL,
+    /**
+     * Not sent: when a thread took the task (after waiting in the {@code integrationTaskExecutor} queue), the call
+     * (connect + read timeout) could no longer end before {@code deadline_at}, when the sweeper releases the record.
+     */
+    EXPIRED_BEFORE_SEND,
     /** Still PROCESSING at {@code deadline_at} (instance stopped, result lost). */
     DEADLINE_EXCEEDED,
     /** Closed by hand with the action {@code resolve}. */

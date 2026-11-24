@@ -107,6 +107,19 @@ class IntegrationPropertiesTest {
     }
 
     @Test
+    void aRequestBudgetBindsAndMustBePositive() {
+        // Arrange
+        IntegrationProperties valid = bind(asyncErp(Map.of("integration.connectors.erp.async.inline-wait-ms", "20000",
+                "integration.connectors.erp.async.request-budget-ms", "27000")));
+        IntegrationProperties zero = bind(asyncErp(Map.of("integration.connectors.erp.async.request-budget-ms", "0")));
+
+        // Act / Assert
+        assertThat(valid.getConnectors().get("erp").getAsync().getRequestBudgetMs()).isEqualTo(27_000L);
+        assertThatCode(valid::validate).doesNotThrowAnyException();
+        assertThatThrownBy(zero::validate).hasMessageContaining("integration.connectors.erp.async.request-budget-ms must be > 0");
+    }
+
+    @Test
     void negativeInlineWaitFails() {
         // Arrange
         IntegrationProperties properties = bind(asyncErp(Map.of("integration.connectors.erp.async.inline-wait-ms", "-1")));
@@ -162,7 +175,36 @@ class IntegrationPropertiesTest {
         // Act / Assert
         assertThatThrownBy(properties::validate)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("deadline-ms (300000) must be greater than timeout.read-ms (300000)");
+                .hasMessageContaining("deadline-ms (300000) must be greater than timeout.connect-ms + timeout.read-ms (300000)");
+    }
+
+    @Test
+    void deadlineNotAboveConnectPlusReadTimeoutFails() {
+        // Arrange
+        IntegrationProperties properties = bind(Map.of(
+                "integration.connectors.erp.timeout.connect-ms", "10000",
+                "integration.connectors.erp.timeout.read-ms", "300000",
+                "integration.connectors.erp.async.enabled", "true",
+                "integration.connectors.erp.async.deadline-ms", "310000"));
+
+        // Act / Assert
+        assertThatThrownBy(properties::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("deadline-ms (310000) must be greater than timeout.connect-ms + timeout.read-ms (310000)");
+    }
+
+    @Test
+    void deadlineAboveConnectPlusReadTimeoutIsValid() {
+        // Arrange
+        IntegrationProperties properties = bind(Map.of(
+                "integration.connectors.erp.timeout.connect-ms", "10000",
+                "integration.connectors.erp.timeout.read-ms", "300000",
+                "integration.connectors.erp.async.enabled", "true",
+                "integration.connectors.erp.async.deadline-ms", "310001"));
+
+        // Act / Assert
+        assertThatCode(properties::validate).doesNotThrowAnyException();
+        assertThat(properties.getConnectors().get("erp").callTimeoutMs()).isEqualTo(310_000L);
     }
 
     @Test

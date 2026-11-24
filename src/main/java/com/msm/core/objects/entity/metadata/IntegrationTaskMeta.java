@@ -43,12 +43,6 @@ public final class IntegrationTaskMeta {
     public static final TypedAttribute<String> OUTCOME =
             attr(TABLE, "outcome", "outcome", String.class);
 
-    public static final TypedAttribute<UUID> ATTEMPT_ID =
-            attr(TABLE, "attemptId", "attempt_id", UUID.class);
-
-    public static final TypedAttribute<Integer> ATTEMPT_COUNT =
-            attr(TABLE, "attemptCount", "attempt_count", Integer.class);
-
     public static final TypedAttribute<JSONB> CONTEXT =
             attr(TABLE, "context", "context", JSONB.class);
 

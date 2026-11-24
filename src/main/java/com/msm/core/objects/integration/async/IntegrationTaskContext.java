@@ -10,7 +10,7 @@ import java.util.UUID;
 
 /**
  * The call given to the result callbacks of {@link AsyncIntegrationHandler}. In sync mode (connector without
- * {@code async.enabled}) there is no task row: {@code taskId} and {@code attemptId} are null. A result handled within
+ * {@code async.enabled}) there is no task row: {@code taskId} is null. A result handled within
  * {@code async.inline-wait-ms} has its task ids and {@code async = false}.
  */
 @Getter
@@ -23,8 +23,6 @@ public class IntegrationTaskContext {
     private final UUID recordId;
     /** {@link AsyncIntegrationHandler#action()} of the handler. */
     private final String action;
-    private final UUID attemptId;
-    private final int attemptCount;
     /**
      * The payload sent ({@link PreparedCall#payload()}). Null in a context rebuilt from the table (sweeper,
      * {@code resolve}): the payload is not stored; what was sent is in {@code integration_log}.

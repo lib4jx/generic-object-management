@@ -40,6 +40,11 @@ public class ObjectErrors {
         return new IntegrationTaskProcessingException(objectName, recordId, taskId, cause);
     }
 
+    public static IntegrationTaskRequestBudgetException integrationTaskRequestBudgetExceeded(String objectName, UUID recordId,
+                                                                                         long elapsedMs, long budgetMs) {
+        return new IntegrationTaskRequestBudgetException(objectName, recordId, elapsedMs, budgetMs);
+    }
+
     public static IntegrationTaskStateException integrationTaskInvalidStatus(UUID taskId, String status) {
         return new IntegrationTaskStateException(ObjectErrorCode.INTEGRATION_TASK_INVALID_STATUS, taskId, status,
                 "Tiến trình gửi đối tác đang ở trạng thái " + status + ", chỉ chốt tay được khi ở trạng thái UNCONFIRMED");

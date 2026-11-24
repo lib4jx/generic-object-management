@@ -2,13 +2,16 @@ package com.msm.core.objects.integration.async;
 
 import com.msm.core.action.context.ActionContext;
 import com.msm.core.objects.config.IntegrationProperties;
+import com.msm.core.objects.exception.ObjectErrors;
 import com.msm.core.objects.integration.IntegrationClient;
+import com.msm.core.objects.integration.data.AsyncProperties;
 import com.msm.core.objects.integration.data.ConnectorProperties;
 import com.msm.core.security.RequestContextHolder;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -22,7 +25,9 @@ import java.util.UUID;
  *   action's response.</li>
  *   <li>{@code async.enabled} with {@code inline-wait-ms > 0}: prepare, the task is inserted in its own transaction
  *   and sent at once; a result within the wait is handled as the sync path and null is returned, else
- *   {@code integration.task.processing} and the worker records the result ({@code InlineWaitDispatch}).</li>
+ *   {@code integration.task.processing} and the worker records the result ({@code InlineWaitDispatch}). With
+ *   {@code request-budget-ms} the wait keeps within the request's budget, and a request without time left fails with
+ *   {@code integration.task.request_budget_exceeded} before any task or call ({@link RequestBudget}).</li>
  * </ul>
  * In both async modes a record with a task PROCESSING gets {@code integration.task.in_progress}.
  */
@@ -34,18 +39,26 @@ public class AsyncIntegrationDispatcher {
     private final IntegrationTaskStore store;
     private final AsyncIntegrationWorker worker;
     private final InlineWaitDispatch inlineWait;
+    private final RequestBudget requestBudget;
     private final AfterCommit afterCommit = new AfterCommit();
     private final IntegrationTaskJson json = new IntegrationTaskJson();
 
     public AsyncIntegrationDispatcher(IntegrationProperties properties, IntegrationClient integrationClient,
                                       IntegrationCallRunner runner, IntegrationTaskStore store,
                                       AsyncIntegrationWorker worker, PlatformTransactionManager transactionManager) {
+        this(properties, integrationClient, runner, store, worker, transactionManager, new RequestBudget());
+    }
+
+    AsyncIntegrationDispatcher(IntegrationProperties properties, IntegrationClient integrationClient,
+                               IntegrationCallRunner runner, IntegrationTaskStore store, AsyncIntegrationWorker worker,
+                               PlatformTransactionManager transactionManager, RequestBudget requestBudget) {
         this.properties = properties;
         this.integrationClient = integrationClient;
         this.runner = runner;
         this.store = store;
         this.worker = worker;
         this.inlineWait = new InlineWaitDispatch(runner, store, worker, transactionManager);
+        this.requestBudget = requestBudget;
     }
 
     public <I, P> IntegrationTaskView dispatch(ActionContext<?> actionContext, AsyncIntegrationHandler<I, P> handler, I input) {
@@ -64,7 +77,6 @@ public class AsyncIntegrationDispatcher {
                 .objectName(actionContext.getResource())
                 .recordId(recordId(actionContext, prepared))
                 .action(handler.action())
-                .attemptCount(1)
                 .payload(prepared.payload())
                 .context(prepared.context())
                 .async(false)
@@ -83,27 +95,26 @@ public class AsyncIntegrationDispatcher {
             throw new IllegalStateException("Async call " + handler.action() + " on " + actionContext.getResource()
                     + " needs a record id: objectId of the action or PreparedCall.forRecord");
         }
+        long inlineWaitMs = inlineWaitMs(connector.getAsync(), actionContext.getResource(), recordId);
         Instant startedAt = Instant.now();
         Instant deadlineAt = startedAt.plus(Duration.ofMillis(connector.getAsync().getDeadlineMs()));
         UUID taskId = UUID.randomUUID();
-        UUID attemptId = UUID.randomUUID();
         NewIntegrationTask row = new NewIntegrationTask(taskId, handler.connector().getName(), actionContext.getResource(),
-                recordId, handler.action(), attemptId, json.write(prepared.context()),
-                startedAt, deadlineAt, RequestContextHolder.getRequestContext().getUsername());
+                recordId, handler.action(), json.write(prepared.context()), startedAt, deadlineAt,
+                RequestContextHolder.getRequestContext().getUsername());
         IntegrationTaskContext task = IntegrationTaskContext.builder()
                 .taskId(taskId)
                 .connector(handler.connector().getName())
                 .objectName(actionContext.getResource())
                 .recordId(recordId)
                 .action(handler.action())
-                .attemptId(attemptId)
-                .attemptCount(1)
                 .payload(prepared.payload())
                 .context(prepared.context())
                 .async(true)
                 .build();
-        AsyncTaskRun<P> run = new AsyncTaskRun<>(handler, task, prepared.payload());
-        long inlineWaitMs = connector.getAsync().getInlineWaitMs();
+        // no read timeout (only outside the validated configuration): only a deadline already passed stops the sending
+        long callTimeoutMs = Objects.requireNonNullElse(connector.callTimeoutMs(), 0L);
+        AsyncTaskRun<P> run = new AsyncTaskRun<>(handler, task, prepared.payload(), deadlineAt, callTimeoutMs);
         if (inlineWaitMs > 0) {
             inlineWait.run(run, row, inlineWaitMs);
             return null;
@@ -111,6 +122,24 @@ public class AsyncIntegrationDispatcher {
         store.insert(row);
         afterCommit.run(() -> worker.submit(run));
         return new IntegrationTaskView(taskId, IntegrationTaskStatus.PROCESSING, deadlineAt);
+    }
+
+    /**
+     * {@code inline-wait-ms}, within what is left of {@code request-budget-ms}; none left: nothing is sent and no task
+     * is created ({@code integration.task.request_budget_exceeded}).
+     */
+    private long inlineWaitMs(AsyncProperties async, String objectName, UUID recordId) {
+        long inlineWaitMs = async.getInlineWaitMs();
+        Long budgetMs = async.getRequestBudgetMs();
+        if (inlineWaitMs <= 0 || budgetMs == null) {
+            return inlineWaitMs;
+        }
+        Long elapsedMs = requestBudget.elapsedMs();
+        long waitMs = requestBudget.waitMs(inlineWaitMs, budgetMs, elapsedMs);
+        if (waitMs <= 0) {
+            throw ObjectErrors.integrationTaskRequestBudgetExceeded(objectName, recordId, elapsedMs, budgetMs);
+        }
+        return waitMs;
     }
 
     private ConnectorProperties connector(AsyncIntegrationHandler<?, ?> handler) {

@@ -44,7 +44,7 @@ class IntegrationTaskActionServiceTest {
     private IntegrationTaskRow task(IntegrationTaskStatus status) {
         Instant now = Instant.now();
         return new IntegrationTaskRow(UUID.randomUUID(), RecordingHandler.CONNECTOR, "v2order", UUID.randomUUID(),
-                RecordingHandler.CONNECTOR, status, null, UUID.randomUUID(), 1, "{\"target\":\"CANCELED\"}",
+                RecordingHandler.CONNECTOR, status, null, "{\"target\":\"CANCELED\"}",
                 null, null, null, null, now, now.plusSeconds(360), null, "user", now, now, 3);
     }
 

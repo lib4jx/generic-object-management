@@ -26,9 +26,8 @@ import java.util.UUID;
 /**
  * Table {@code integration_task} of the service (created by the service's own migration, see the README), read and
  * written with jOOQ in the transaction of the calling thread, if any. Every status change out of PROCESSING /
- * UNCONFIRMED is fenced on the status (and on {@code attempt_id} for a call result), so two writers never both win.
- * The payload sent and the partner's answer are not stored here: they are in {@code integration_log}
- * ({@link IntegrationTaskLogReader}).
+ * UNCONFIRMED is fenced on the status, so two writers never both win. The payload sent and the partner's answer are
+ * not stored here: they are in {@code integration_log} ({@code correlation_id} = id of the task).
  */
 @RequiredArgsConstructor
 public class IntegrationTaskStore {
@@ -47,8 +46,6 @@ public class IntegrationTaskStore {
     private static final Field<String> ACTION = DSL.field(DSL.name("action"), SQLDataType.VARCHAR);
     private static final Field<String> STATUS = DSL.field(DSL.name("status"), SQLDataType.VARCHAR);
     private static final Field<String> OUTCOME = DSL.field(DSL.name("outcome"), SQLDataType.VARCHAR);
-    private static final Field<UUID> ATTEMPT_ID = DSL.field(DSL.name("attempt_id"), SQLDataType.UUID);
-    private static final Field<Integer> ATTEMPT_COUNT = DSL.field(DSL.name("attempt_count"), SQLDataType.INTEGER);
     private static final Field<JSONB> CONTEXT = DSL.field(DSL.name("context"), SQLDataType.JSONB);
     private static final Field<String> ERROR_CODE = DSL.field(DSL.name("error_code"), SQLDataType.VARCHAR);
     private static final Field<String> ERROR_MESSAGE = DSL.field(DSL.name("error_message"), SQLDataType.VARCHAR);
@@ -63,8 +60,8 @@ public class IntegrationTaskStore {
     private static final Field<Long> VERSION = DSL.field(DSL.name("version"), SQLDataType.BIGINT);
 
     private static final List<Field<?>> ALL_FIELDS = List.of(ID, CONNECTOR, OBJECT_NAME, RECORD_ID, ACTION, STATUS, OUTCOME,
-            ATTEMPT_ID, ATTEMPT_COUNT, CONTEXT, ERROR_CODE, ERROR_MESSAGE, RESOLVED_BY, RESOLVE_REASON,
-            STARTED_AT, DEADLINE_AT, COMPLETED_AT, CREATED_BY, CREATED_AT, UPDATED_AT, VERSION);
+            CONTEXT, ERROR_CODE, ERROR_MESSAGE, RESOLVED_BY, RESOLVE_REASON, STARTED_AT, DEADLINE_AT, COMPLETED_AT,
+            CREATED_BY, CREATED_AT, UPDATED_AT, VERSION);
 
     private final DSLContext dsl;
 
@@ -75,10 +72,10 @@ public class IntegrationTaskStore {
     public void insert(NewIntegrationTask task) {
         try {
             dsl.insertInto(TABLE)
-                    .columns(ID, CONNECTOR, OBJECT_NAME, RECORD_ID, ACTION, STATUS, ATTEMPT_ID, ATTEMPT_COUNT, CONTEXT,
-                            STARTED_AT, DEADLINE_AT, CREATED_BY, CREATED_AT, VERSION)
+                    .columns(ID, CONNECTOR, OBJECT_NAME, RECORD_ID, ACTION, STATUS, CONTEXT, STARTED_AT, DEADLINE_AT,
+                            CREATED_BY, CREATED_AT, VERSION)
                     .values(task.id(), task.connector(), task.objectName(), task.recordId(), task.action(),
-                            IntegrationTaskStatus.PROCESSING.name(), task.attemptId(), 1, jsonb(task.context()),
+                            IntegrationTaskStatus.PROCESSING.name(), jsonb(task.context()),
                             time(task.startedAt()), time(task.deadlineAt()),
                             cut(task.createdBy(), USER_LENGTH), time(task.startedAt()), 0L)
                     .execute();
@@ -106,11 +103,11 @@ public class IntegrationTaskStore {
     }
 
     /**
-     * Writes the result of the sending {@code attemptId}: status, outcome and error (the partner's answer stays in
-     * {@code integration_log}). 0 rows: the task is no longer PROCESSING under this attempt (the sweeper closed it),
-     * and the result must be dropped.
+     * Writes the result of the task's sending: status, outcome and error (the partner's answer stays in
+     * {@code integration_log}). 0 rows: the task is no longer PROCESSING (the sweeper closed it), and the result must be
+     * dropped.
      */
-    public int finish(UUID id, UUID attemptId, ClassifiedOutcome outcome) {
+    public int finish(UUID id, ClassifiedOutcome outcome) {
         IntegrationError error = outcome.error();
         Instant now = Instant.now();
         return dsl.update(TABLE)
@@ -122,7 +119,6 @@ public class IntegrationTaskStore {
                 .set(UPDATED_AT, time(now))
                 .set(VERSION, VERSION.plus(1))
                 .where(ID.eq(id))
-                .and(ATTEMPT_ID.eq(attemptId))
                 .and(STATUS.eq(IntegrationTaskStatus.PROCESSING.name()))
                 .execute();
     }
@@ -205,8 +201,6 @@ public class IntegrationTaskStore {
                 record.get(ACTION),
                 IntegrationTaskStatus.valueOf(record.get(STATUS)),
                 record.get(OUTCOME),
-                record.get(ATTEMPT_ID),
-                record.get(ATTEMPT_COUNT),
                 text(record.get(CONTEXT)),
                 record.get(ERROR_CODE),
                 record.get(ERROR_MESSAGE),

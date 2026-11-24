@@ -19,4 +19,13 @@ public class AsyncProperties {
      * {@code integration.task.processing} and the worker records the result. Must be lower than {@code deadline-ms}.
      */
     private long inlineWaitMs = 0;
+    /**
+     * With {@code inline-wait-ms > 0}, optional (since 2.7.8): the time an HTTP request may take up to the end of the
+     * wait, counted from its arrival in the service. The wait becomes {@code min(inline-wait-ms, request-budget-ms -
+     * time already spent)}; none left: the action fails with {@code integration.task.request_budget_exceeded} before
+     * any task or call. Keep it below the timeout of the gateways in front (CloudFront 30 s) minus the time the action
+     * needs after the answer. Not set: the wait is {@code inline-wait-ms}. Ignored outside a request and with
+     * {@code inline-wait-ms: 0}.
+     */
+    private Long requestBudgetMs;
 }

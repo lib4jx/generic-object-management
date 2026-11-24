@@ -18,7 +18,7 @@ public class IntegrationClientExchange {
     private final RetryExecutor retryExecutor;
     private final RetryExecutor exchangeRetryExecutor;
 
-    /** Every connector on {@code requestClient}, as before 2.8.0. */
+    /** Every connector on {@code requestClient}, as before 2.7.3. */
     public IntegrationClientExchange(RequestClient requestClient, HttpMiddlewareChain chain, RetryExecutor retryExecutor,
                                      RetryExecutor exchangeRetryExecutor) {
         this(new ConnectorRequestClientRegistry(requestClient), chain, retryExecutor, exchangeRetryExecutor);

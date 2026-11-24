@@ -59,13 +59,6 @@ public class IntegrationTask {
     @Column(name = "outcome")
     private String outcome;
 
-    /** Changes at every sending: a result of an older sending cannot overwrite the task. */
-    @Column(name = "attempt_id", nullable = false)
-    private UUID attemptId;
-
-    @Column(name = "attempt_count", nullable = false)
-    private Integer attemptCount;
-
     /** Data of the action the result step needs (target status of a cancel...). */
     @Column(name = "context")
     @JdbcTypeCode(SqlTypes.JSON)

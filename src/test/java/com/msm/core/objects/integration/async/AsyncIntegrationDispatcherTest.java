@@ -10,6 +10,7 @@ import com.msm.core.objects.integration.ConnectorRequestBuilder;
 import com.msm.core.objects.integration.IntegrationClient;
 import com.msm.core.objects.integration.data.AsyncProperties;
 import com.msm.core.objects.integration.data.ConnectorProperties;
+import com.msm.core.objects.integration.data.TimeoutProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -37,6 +38,8 @@ import static org.mockito.Mockito.when;
 class AsyncIntegrationDispatcherTest {
 
     private static final long DEADLINE_MS = 360_000L;
+    private static final long CONNECT_MS = 10_000L;
+    private static final long READ_MS = 300_000L;
     private static final String OBJECT = "v2order";
 
     private final IntegrationClient integrationClient = mock(IntegrationClient.class);
@@ -57,6 +60,10 @@ class AsyncIntegrationDispatcherTest {
             asyncProperties.setEnabled(true);
             asyncProperties.setDeadlineMs(DEADLINE_MS);
             connector.setAsync(asyncProperties);
+            TimeoutProperties timeout = new TimeoutProperties();
+            timeout.setConnectMs(CONNECT_MS);
+            timeout.setReadMs(READ_MS);
+            connector.setTimeout(timeout);
         }
         IntegrationProperties properties = new IntegrationProperties();
         properties.getConnectors().put(RecordingHandler.CONNECTOR, connector);
@@ -205,7 +212,8 @@ class AsyncIntegrationDispatcherTest {
         ArgumentCaptor<AsyncTaskRun> submitted = ArgumentCaptor.forClass(AsyncTaskRun.class);
         verify(worker).submit(submitted.capture());
         assertThat(submitted.getValue().task().getTaskId()).isEqualTo(view.id());
-        assertThat(submitted.getValue().task().getAttemptId()).isEqualTo(task.attemptId());
+        assertThat(submitted.getValue().deadlineAt()).isEqualTo(task.deadlineAt());
+        assertThat(submitted.getValue().callTimeoutMs()).isEqualTo(CONNECT_MS + READ_MS);
         assertThat(submitted.getValue().payload()).isEqualTo(Map.of("code", "DH1"));
     }
 

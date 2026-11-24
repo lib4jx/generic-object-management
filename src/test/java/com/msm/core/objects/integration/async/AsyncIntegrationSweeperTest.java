@@ -43,7 +43,7 @@ class AsyncIntegrationSweeperTest {
     static IntegrationTaskRow expired(String connector, String action) {
         Instant now = Instant.now();
         return new IntegrationTaskRow(UUID.randomUUID(), connector, "v2order", UUID.randomUUID(), action,
-                IntegrationTaskStatus.UNCONFIRMED, IntegrationOutcome.DEADLINE_EXCEEDED.name(), UUID.randomUUID(), 1,
+                IntegrationTaskStatus.UNCONFIRMED, IntegrationOutcome.DEADLINE_EXCEEDED.name(),
                 "{\"target\":\"CANCELED\"}", IntegrationOutcome.DEADLINE_EXCEEDED.name(), "late",
                 null, null, now.minusSeconds(400), now.minusSeconds(40), now, "user", now.minusSeconds(400), now, 1);
     }

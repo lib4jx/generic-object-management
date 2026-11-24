@@ -104,10 +104,10 @@ class InlineWaitDispatch {
     private <P> void deliverInRequest(AsyncTaskRun<P> run, ClassifiedOutcome outcome) {
         IntegrationTaskContext task = inRequest(run.task());
         closeOnRollback(task, outcome);
-        if (store.finish(task.getTaskId(), task.getAttemptId(), outcome) == 0) {
-            // only the sweeper closes a task under its attempt, past its deadline: it already ran onUnconfirmed
-            log.warn("Result {} of integration task {} (attempt {}) dropped: the task is no longer PROCESSING under this "
-                    + "attempt", outcome.status(), task.getTaskId(), task.getAttemptId());
+        if (store.finish(task.getTaskId(), outcome) == 0) {
+            // only the sweeper closes a task PROCESSING, past its deadline: it already ran onUnconfirmed
+            log.warn("Result {} of integration task {} dropped: the task is no longer PROCESSING", outcome.status(),
+                    task.getTaskId());
             throw ObjectErrors.integrationTaskProcessing(task.getObjectName(), task.getRecordId(), task.getTaskId(), null);
         }
         runner.deliver(run.handler(), task, outcome);
@@ -151,7 +151,7 @@ class InlineWaitDispatch {
     }
 
     private void record(IntegrationTaskContext task, ClassifiedOutcome outcome) {
-        newTransaction.executeWithoutResult(status -> store.finish(task.getTaskId(), task.getAttemptId(), outcome));
+        newTransaction.executeWithoutResult(status -> store.finish(task.getTaskId(), outcome));
     }
 
     /** The callback runs in the action, as a direct call: it may throw to fail the action. */

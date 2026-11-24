@@ -8,6 +8,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -15,29 +16,41 @@ import java.util.concurrent.RejectedExecutionException;
 
 /**
  * Sends a task on {@code integrationTaskExecutor}, outside any transaction (with the security context of the user who
- * started it), then writes the result in a new transaction fenced on {@code attempt_id} and status PROCESSING, and calls
- * the handler's callback in that same transaction. A result that lost the race (the sweeper got there first) is dropped
- * with a WARN; the answer stays in {@code integration_log} (correlation id = task id). With
- * {@code inline-wait-ms > 0} the call is sent at once ({@code sendNow}) and the worker records the result only when the
- * action stopped waiting ({@code InlineWaitDispatch}).
+ * started it), then writes the result in a new transaction fenced on status PROCESSING, and calls the handler's
+ * callback in that same transaction. A result that lost the race (the sweeper got there first) is dropped with a WARN;
+ * the answer stays in {@code integration_log} (correlation id = task id). With {@code inline-wait-ms > 0} the call is
+ * sent at once ({@code sendNow}) and the worker records the result only when the action stopped waiting
+ * ({@code InlineWaitDispatch}). A task that waited in the executor queue so long that its call (connect + read timeout)
+ * could end past {@code deadline_at} is not sent: FAILED {@link IntegrationOutcome#EXPIRED_BEFORE_SEND}, so the partner
+ * is never called after the sweeper released the record.
  */
 @Slf4j
 public class AsyncIntegrationWorker {
+
+    private static final String EXPIRED_BEFORE_SEND_MESSAGE =
+            "Not sent: waited too long for a free thread, the call could no longer end before the task deadline";
 
     private final Executor executor;
     private final IntegrationClient integrationClient;
     private final IntegrationCallRunner runner;
     private final IntegrationTaskStore store;
     private final TransactionTemplate newTransaction;
+    private final Clock clock;
 
     public AsyncIntegrationWorker(Executor executor, IntegrationClient integrationClient, IntegrationCallRunner runner,
                                   IntegrationTaskStore store, PlatformTransactionManager transactionManager) {
+        this(executor, integrationClient, runner, store, transactionManager, Clock.systemUTC());
+    }
+
+    AsyncIntegrationWorker(Executor executor, IntegrationClient integrationClient, IntegrationCallRunner runner,
+                           IntegrationTaskStore store, PlatformTransactionManager transactionManager, Clock clock) {
         this.executor = executor;
         this.integrationClient = integrationClient;
         this.runner = runner;
         this.store = store;
         this.newTransaction = new TransactionTemplate(transactionManager);
         this.newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.clock = clock;
     }
 
     /** Queues the sending. Executor full: the task is FAILED at once (nothing was sent). Never throws. */
@@ -85,9 +98,9 @@ public class AsyncIntegrationWorker {
     <P> void complete(AsyncTaskRun<P> run, ClassifiedOutcome outcome) {
         IntegrationTaskContext task = run.task();
         Boolean applied = newTransaction.execute(status -> {
-            if (store.finish(task.getTaskId(), task.getAttemptId(), outcome) == 0) {
-                log.warn("Result {} of integration task {} (attempt {}) dropped: the task is no longer PROCESSING under "
-                        + "this attempt", outcome.status(), task.getTaskId(), task.getAttemptId());
+            if (store.finish(task.getTaskId(), outcome) == 0) {
+                log.warn("Result {} of integration task {} dropped: the task is no longer PROCESSING", outcome.status(),
+                        task.getTaskId());
                 return Boolean.FALSE;
             }
             runner.deliver(run.handler(), task, outcome);
@@ -110,9 +123,25 @@ public class AsyncIntegrationWorker {
     }
 
     private <P> ClassifiedOutcome callPartner(AsyncTaskRun<P> run) {
+        if (!endsBeforeDeadline(run)) {
+            return expiredBeforeSend(run);
+        }
         ConnectorRequestBuilder client = integrationClient.connector(run.handler().connector())
                 .attribute(HttpRequestContext.ATTRIBUTE_ASYNC_TASK_ID, run.task().getTaskId());
         return runner.call(run.handler(), run.task(), run.payload(), client);
+    }
+
+    /** now + the call's longest time (connect + read timeout) is not past the task's {@code deadline_at}. */
+    private boolean endsBeforeDeadline(AsyncTaskRun<?> run) {
+        return !clock.instant().plusMillis(run.callTimeoutMs()).isAfter(run.deadlineAt());
+    }
+
+    /** FAILED result of a task taken too late to send: the partner is not called. */
+    private ClassifiedOutcome expiredBeforeSend(AsyncTaskRun<?> run) {
+        log.warn("Integration task {} not sent: a call of up to {} ms would end past its deadline {}; FAILED",
+                run.task().getTaskId(), run.callTimeoutMs(), run.deadlineAt());
+        return ClassifiedOutcome.failed(IntegrationOutcome.EXPIRED_BEFORE_SEND, IntegrationError.of(
+                IntegrationOutcome.EXPIRED_BEFORE_SEND, EXPIRED_BEFORE_SEND_MESSAGE));
     }
 
     private <P> ClassifiedOutcome unclassified(AsyncTaskRun<P> run, Throwable error) {

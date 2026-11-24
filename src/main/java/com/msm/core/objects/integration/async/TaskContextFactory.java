@@ -15,8 +15,6 @@ class TaskContextFactory {
                 .objectName(row.objectName())
                 .recordId(row.recordId())
                 .action(row.action())
-                .attemptId(row.attemptId())
-                .attemptCount(row.attemptCount())
                 .context(json.readMap(row.context()))
                 .async(true)
                 .build();

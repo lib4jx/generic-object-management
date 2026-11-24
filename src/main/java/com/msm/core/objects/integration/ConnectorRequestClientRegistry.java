@@ -8,7 +8,7 @@ import java.util.Map;
 
 /**
  * The {@link RequestClient} of each connector: a connector with a {@code timeout} block has its own client, built once
- * at startup; every other connector uses the shared {@code integrationRequestClient}, exactly as before 2.8.0.
+ * at startup; every other connector uses the shared {@code integrationRequestClient}, exactly as before 2.7.3.
  */
 public class ConnectorRequestClientRegistry {
 

@@ -54,11 +54,14 @@ public class IntegrationProperties implements InitializingBean {
             throw new IllegalStateException(CONNECTOR_PREFIX + name
                     + ".timeout.read-ms is required when async.enabled is true: without it a call may never end");
         }
-        if (deadlineMs <= readMs) {
+        // the worker does not send a call that could end past the deadline: deadline-ms must leave room for one call
+        Long callTimeoutMs = connector.callTimeoutMs();
+        if (deadlineMs <= callTimeoutMs) {
             throw new IllegalStateException(CONNECTOR_PREFIX + name + ".async.deadline-ms (" + deadlineMs
-                    + ") must be greater than timeout.read-ms (" + readMs + ")");
+                    + ") must be greater than timeout.connect-ms + timeout.read-ms (" + callTimeoutMs + ")");
         }
         validateInlineWait(name, async.getInlineWaitMs(), deadlineMs);
+        requirePositive(name, "async.request-budget-ms", async.getRequestBudgetMs());
     }
 
     private void validateInlineWait(String name, long inlineWaitMs, long deadlineMs) {

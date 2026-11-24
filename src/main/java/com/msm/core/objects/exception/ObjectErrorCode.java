@@ -15,7 +15,9 @@ public enum ObjectErrorCode implements ErrorCode {
     /** The task is not in the status the action needs ({@code resolve} needs UNCONFIRMED). */
     INTEGRATION_TASK_INVALID_STATUS("integration.task.invalid_status"),
     /** The action waited {@code async.inline-wait-ms} without a result; the task goes on in the background (HTTP 409). */
-    INTEGRATION_TASK_PROCESSING("integration.task.processing");
+    INTEGRATION_TASK_PROCESSING("integration.task.processing"),
+    /** The request spent {@code async.request-budget-ms} before the call: nothing sent, no task (since 2.7.8). */
+    INTEGRATION_TASK_REQUEST_BUDGET_EXCEEDED("integration.task.request_budget_exceeded");
 
     private final String code;
 

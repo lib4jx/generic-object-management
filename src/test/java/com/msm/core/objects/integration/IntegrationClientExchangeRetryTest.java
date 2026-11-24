@@ -85,7 +85,7 @@ class IntegrationClientExchangeRetryTest {
         // Act
         assertThatThrownBy(() -> exchange.exchange(context(false), Map.class)).isInstanceOf(ResourceAccessException.class);
 
-        // Assert: 3, was 3 × 3 = 9 before 2.8.0
+        // Assert: 3, was 3 × 3 = 9 before 2.7.3
         verifyCalls(MAX_ATTEMPTS);
     }
 
