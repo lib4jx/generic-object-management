@@ -42,6 +42,6 @@ public class ObjectErrors {
 
     public static IntegrationTaskStateException integrationTaskInvalidStatus(UUID taskId, String status) {
         return new IntegrationTaskStateException(ObjectErrorCode.INTEGRATION_TASK_INVALID_STATUS, taskId, status,
-                "The task is " + status + ", the action needs UNCONFIRMED");
+                "Tiến trình gửi đối tác đang ở trạng thái " + status + ", chỉ chốt tay được khi ở trạng thái UNCONFIRMED");
     }
 }

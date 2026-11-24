@@ -14,7 +14,7 @@ public class IntegrationTaskInProgressException extends GenericBaseException {
     public static final String OBJECT_PARAM = "object";
     public static final String RECORD_ID_PARAM = "recordId";
     public static final String TASK_ID_PARAM = "taskId";
-    private static final String MESSAGE = "A call to a partner is in progress for this record";
+    private static final String MESSAGE = "Bản ghi đang được gửi sang đối tác, vui lòng chờ trong giây lát";
 
     public IntegrationTaskInProgressException(String objectName, UUID recordId, UUID taskId, Throwable cause) {
         super(ObjectErrorCode.INTEGRATION_TASK_IN_PROGRESS, MESSAGE, params(objectName, recordId, taskId), cause);

@@ -42,7 +42,7 @@ class GenericBaseExceptionResolverTest {
         assertThat(inProgress.getErrorCode()).isEqualTo("integration.task.in_progress");
         assertThat(processing.getStatusCode()).isEqualTo(409);
         assertThat(processing.getErrorCode()).isEqualTo("integration.task.processing");
-        assertThat(processing.getErrorMessage()).isEqualTo("Tiến trình gửi ERP vẫn đang chạy, vui lòng tải lại sau ít phút");
+        assertThat(processing.getErrorMessage()).isEqualTo("Tiến trình gửi sang đối tác vẫn đang chạy, vui lòng tải lại sau ít phút");
     }
 
     @Test

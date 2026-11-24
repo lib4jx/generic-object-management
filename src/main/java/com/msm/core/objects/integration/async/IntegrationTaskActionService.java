@@ -41,7 +41,7 @@ public class IntegrationTaskActionService {
         DataRecord request = DataRecord.ofNullable(payload);
         String reason = request.getOrDefault(REASON_PARAM, String.class, null);
         if (Utils.STR.isBlank(reason)) {
-            throw CommonErrors.required(REASON_PARAM, REASON_PARAM + " is required");
+            throw CommonErrors.required(REASON_PARAM, "Lý do là bắt buộc");
         }
         IntegrationTaskStatus target = targetStatus(request.getOrDefault(STATUS_PARAM, String.class, null));
         Object data = request.getOrDefault(DATA_PARAM, Object.class, null);
@@ -87,7 +87,7 @@ public class IntegrationTaskActionService {
         IntegrationTaskStatus status = Utils.STR.isBlank(value) ? null
                 : RESOLVE_STATUSES.stream().filter(candidate -> candidate.name().equals(value)).findFirst().orElse(null);
         if (status == null) {
-            throw CommonErrors.invalid(STATUS_PARAM, STATUS_PARAM + " must be SUCCEEDED or FAILED");
+            throw CommonErrors.invalid(STATUS_PARAM, "Trạng thái chốt phải là SUCCEEDED hoặc FAILED");
         }
         return status;
     }

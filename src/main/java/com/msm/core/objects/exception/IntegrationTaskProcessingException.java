@@ -15,7 +15,7 @@ public class IntegrationTaskProcessingException extends GenericBaseException {
     public static final String OBJECT_PARAM = "object";
     public static final String RECORD_ID_PARAM = "recordId";
     public static final String TASK_ID_PARAM = "taskId";
-    private static final String MESSAGE = "Tiến trình gửi ERP vẫn đang chạy, vui lòng tải lại sau ít phút";
+    private static final String MESSAGE = "Tiến trình gửi sang đối tác vẫn đang chạy, vui lòng tải lại sau ít phút";
 
     public IntegrationTaskProcessingException(String objectName, UUID recordId, UUID taskId, Throwable cause) {
         super(ObjectErrorCode.INTEGRATION_TASK_PROCESSING, MESSAGE, params(objectName, recordId, taskId), cause);
