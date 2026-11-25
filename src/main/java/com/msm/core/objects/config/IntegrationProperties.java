@@ -1,7 +1,10 @@
 package com.msm.core.objects.config;
 
+import com.msm.core.objects.integration.auth.enums.AuthProviderEnum;
+import com.msm.core.objects.integration.auth.enums.OAuth2ClientAuthMethod;
 import com.msm.core.objects.integration.data.AsyncExecutorProperties;
 import com.msm.core.objects.integration.data.AsyncProperties;
+import com.msm.core.objects.integration.data.AuthProviderProperties;
 import com.msm.core.objects.integration.data.ConnectorProperties;
 import com.msm.core.objects.integration.data.TimeoutProperties;
 import lombok.Data;
@@ -35,6 +38,7 @@ public class IntegrationProperties implements InitializingBean {
     }
 
     private void validateConnector(String name, ConnectorProperties connector) {
+        validateOAuth2ClientAuth(name, connector.getAuth());
         TimeoutProperties timeout = connector.getTimeout();
         if (timeout != null) {
             requirePositive(name, "timeout.connect-ms", timeout.getConnectMs());
@@ -62,6 +66,27 @@ public class IntegrationProperties implements InitializingBean {
         }
         validateInlineWait(name, async.getInlineWaitMs(), deadlineMs);
         requirePositive(name, "async.request-budget-ms", async.getRequestBudgetMs());
+    }
+
+    /** {@code client-auth-method} of an {@code oauth2-credentials} connector (2.7.9): a known value, a form body with basic. */
+    private void validateOAuth2ClientAuth(String name, AuthProviderProperties auth) {
+        if (auth == null || auth.getProperties() == null
+                || !AuthProviderEnum.OAUTH2_CLIENT_CREDENTIALS.getName().equals(auth.getProvider())) {
+            return;
+        }
+        final Object rawMethod = auth.getProperties().get("clientAuthMethod");
+        final OAuth2ClientAuthMethod method;
+        try {
+            method = OAuth2ClientAuthMethod.fromValue(rawMethod == null ? null : rawMethod.toString());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalStateException(CONNECTOR_PREFIX + name + ".auth.properties.client-auth-method: " + ex.getMessage(), ex);
+        }
+        final boolean strictJson = Boolean.parseBoolean(String.valueOf(auth.getProperties().get("strictJsonMode")));
+        if (method == OAuth2ClientAuthMethod.CLIENT_SECRET_BASIC && strictJson) {
+            throw new IllegalStateException(CONNECTOR_PREFIX + name + ".auth.properties: client-auth-method "
+                    + OAuth2ClientAuthMethod.CLIENT_SECRET_BASIC.getValue()
+                    + " sends a form body, it cannot be combined with strict-json-mode: true");
+        }
     }
 
     private void validateInlineWait(String name, long inlineWaitMs, long deadlineMs) {

@@ -17,6 +17,9 @@ public class OAuth2Properties {
 
     private String scope;
 
+    /** {@code client_secret_post} (default) or {@code client_secret_basic}, see {@code OAuth2ClientAuthMethod}. */
+    private String clientAuthMethod;
+
     private String accessTokenPath;
 
     private Map<String, String> headers;

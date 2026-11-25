@@ -240,4 +240,49 @@ class IntegrationPropertiesTest {
         // Act / Assert
         assertThatThrownBy(properties::validate).hasMessageContaining("integration.connectors.erp.timeout.read-ms must be > 0");
     }
+
+    /** An {@code oauth2-credentials} connector {@code bip} with {@code extra} auth properties. */
+    private Map<String, String> oauth2Bip(Map<String, String> extra) {
+        Map<String, String> values = new HashMap<>();
+        values.put("integration.connectors.bip.base-url", "https://fusion");
+        values.put("integration.connectors.bip.auth.provider", "oauth2-credentials");
+        values.put("integration.connectors.bip.auth.properties.token-url", "https://idcs/oauth2/v1/token");
+        extra.forEach((key, value) -> values.put("integration.connectors.bip.auth.properties." + key, value));
+        return values;
+    }
+
+    @Test
+    void oauth2ClientAuthMethodBindsAndValidates() {
+        // Arrange
+        IntegrationProperties properties = bind(oauth2Bip(Map.of("client-auth-method", "client_secret_basic")));
+
+        // Act / Assert
+        assertThat(properties.getConnectors().get("bip").getAuth().getProperties())
+                .containsEntry("clientAuthMethod", "client_secret_basic");
+        assertThatCode(properties::validate).doesNotThrowAnyException();
+        assertThatCode(bind(oauth2Bip(Map.of()))::validate).doesNotThrowAnyException();
+        assertThatCode(bind(oauth2Bip(Map.of("client-auth-method", "client_secret_post", "strict-json-mode", "true")))::validate)
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void unknownOAuth2ClientAuthMethodFails() {
+        // Arrange
+        IntegrationProperties properties = bind(oauth2Bip(Map.of("client-auth-method", "client_secret_jwt")));
+
+        // Act / Assert
+        assertThatThrownBy(properties::validate)
+                .hasMessageContaining("integration.connectors.bip.auth.properties.client-auth-method")
+                .hasMessageContaining("client_secret_jwt");
+    }
+
+    @Test
+    void clientSecretBasicWithStrictJsonFails() {
+        // Arrange
+        IntegrationProperties properties = bind(oauth2Bip(Map.of(
+                "client-auth-method", "client_secret_basic", "strict-json-mode", "true")));
+
+        // Act / Assert
+        assertThatThrownBy(properties::validate).hasMessageContaining("cannot be combined with strict-json-mode");
+    }
 }

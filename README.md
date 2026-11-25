@@ -93,6 +93,31 @@ integration:
 - Cấu hình import/export (`imports.*`, `exports.*`) có thể đặt trong `classpath:imports/*.yml` và `classpath:exports/*.yml`. Các file này được nạp tự động với **độ ưu tiên cao nhất**, ghi đè cả `application.yml`.
 - Nên khai báo `imports.processing` và `exports.processing` ở cấp global.
 
+#### Auth `oauth2-credentials` (OAuth 2.0 client credentials)
+
+```yaml
+      auth:
+        provider: oauth2-credentials
+        properties:
+          token-url: ${PARTNER_TOKEN_URL}
+          client-id: ${PARTNER_CLIENT_ID}
+          client-secret: ${PARTNER_CLIENT_SECRET}
+          scope: ${PARTNER_SCOPE:}                 # tùy chọn
+          access-token-path: access_token          # trường chứa token trong response; mặc định "token"
+          client-auth-method: client_secret_basic  # từ 2.7.9; mặc định client_secret_post
+          skew-seconds: 60                         # mặc định 60
+        headers:                                   # tùy chọn, chỉ gửi kèm lời gọi lấy token
+          Content-Type: application/x-www-form-urlencoded
+```
+
+- **`client-auth-method`** (từ 2.7.9, RFC 6749 §2.3.1):
+  - `client_secret_post` (mặc định, như 2.7.8 trở về trước): `client_id` / `client_secret` nằm trong body. Không khai `headers` thì body là JSON; `Content-Type: application/x-www-form-urlencoded` thì body là form; `strict-json-mode: true` thì body là chuỗi JSON.
+  - `client_secret_basic`: header `Authorization: Basic base64(id:secret)` (id và secret được form-encode trước), body form chỉ có `grant_type` và `scope`. Không khai `Content-Type` thì lib tự đặt form. Oracle IDCS ("Send as Basic Auth header") dùng cách này.
+  - Giá trị khác, hoặc `client_secret_basic` cùng `strict-json-mode: true`: service không khởi động.
+- **Cache token** (Redis): khóa `<tenant>:oauth2-credentials:<token-url>:<16 ký tự SHA-256 của client-id|scope>` (từ 2.7.9; trước đó chỉ theo `token-url`, nên hai connector cùng identity server nhưng khác client / scope dùng nhầm token của nhau). Nâng lên 2.7.9, mỗi connector lấy token mới một lần; khóa cũ không có TTL, nằm lại trong Redis, không ảnh hưởng.
+- **Gia hạn** (từ 2.7.9): token được lấy lại khi còn ≤ `skew-seconds` tới `exp` (trước đó chỉ khi đã quá `exp`) hoặc khi đối tác trả 401. Khoảng gia hạn sớm không vượt nửa thời gian sống của token (token sống 40 s thì gia hạn khi còn 20 s), nên token sống ngắn vẫn được cache như trước. Token lưu trong Redis với TTL = thời gian còn lại − khoảng đó. Token không có `exp`: cache không TTL và chỉ gia hạn khi 401, như trước.
+- Token phải là JWT (đọc `exp`). `oauth2-password` chưa đổi ở 2.7.9 (khóa cache vẫn theo `token-url`, không dùng `skew-seconds`).
+
 ### 4. Database
 
 Thư viện thêm các JPA entity của nó vào persistence unit của service. Database phải có các bảng:
